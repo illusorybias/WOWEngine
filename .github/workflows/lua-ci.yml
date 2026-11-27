@@ -1,0 +1,21 @@
+name: WOWEngine Lua Syntax & TOS CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  validate-lua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Lua 5.1 compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+      - name: Run WOWEngine Lua & Blizzard TOS Validator
+        run: python3 agent/lua_validator.py .
