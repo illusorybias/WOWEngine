@@ -7,6 +7,9 @@ TA.bar = nil
 TA.glowFrame = nil
 TA.standaloneFrame = nil
 TA.currentNextPick = nil
+TA.hookedFrames = {}
+TA.hookedFuncs = {}
+TA.refreshPending = false
 
 -- WoW Forever Class & Spec Pre-Loads (PvE Leveling, PvE Raid, PvP)
 -- Each order entry: { tabIndex, talentNameSubstring, targetRank }
@@ -365,73 +368,463 @@ function TA:CycleBuild()
     if NS.StatCapsUI and NS.StatCapsUI.Refresh then NS.StatCapsUI:Refresh() end
 end
 
--- Determine next recommended talent button based on current learned ranks
-function TA:FindNextRecommendedTalent()
-    local build = TA:GetSelectedBuild()
-    if not build or not build.order or not GetNumTalents or not GetTalentInfo then
-        return nil, build
+-- Dynamically resolve the active Blizzard talent window across Classic & Modern clients
+function TA:GetTalentParentFrame()
+    return _G.PlayerSpellsFrame or _G.PlayerTalentFrame or _G.TalentFrame or _G.ClassTalentFrame
+end
+
+local function GetSpellNameSafe(spellID)
+    if not spellID then return nil end
+    local name = nil
+    if C_Spell and C_Spell.GetSpellName then
+        local ok, n = pcall(C_Spell.GetSpellName, spellID)
+        if ok and n then name = n end
+    end
+    if not name and GetSpellInfo then
+        local ok, n = pcall(GetSpellInfo, spellID)
+        if ok and n then name = n end
+    end
+    if name and C and C.IsSecret and C.IsSecret(name) then
+        return nil
+    end
+    return name
+end
+
+local function AddUniqueName(list, seen, rawName)
+    if not rawName or type(rawName) ~= "string" or rawName == "" then return end
+    if C and C.IsSecret and C.IsSecret(rawName) then return end
+    if not seen[rawName] then
+        seen[rawName] = true
+        table.insert(list, rawName)
+    end
+end
+
+local function GetNodeNames(configID, nodeInfo)
+    local names, seen = {}, {}
+    if type(nodeInfo) ~= "table" then return names end
+
+    local function addEntry(entryID)
+        if not entryID or not configID or not C_Traits or not C_Traits.GetEntryInfo then return end
+        local okE, entryInfo = pcall(C_Traits.GetEntryInfo, configID, entryID)
+        if okE and type(entryInfo) == "table" and entryInfo.definitionID and C_Traits.GetDefinitionInfo then
+            local okD, defInfo = pcall(C_Traits.GetDefinitionInfo, entryInfo.definitionID)
+            if okD and type(defInfo) == "table" then
+                AddUniqueName(names, seen, defInfo.overrideName)
+                if defInfo.spellID then
+                    AddUniqueName(names, seen, GetSpellNameSafe(defInfo.spellID))
+                end
+            end
+        end
     end
 
-    for stepIdx, step in ipairs(build.order) do
-        local tabIdx, wantName, wantRank = step[1], string.lower(step[2]), step[3]
-        local okN, numTalents = pcall(GetNumTalents, tabIdx)
-        if okN and type(numTalents) == "number" then
-            for tIdx = 1, numTalents do
-                local okT, tName, _, _, _, curRank, maxRank = pcall(GetTalentInfo, tabIdx, tIdx)
-                if okT and tName and string.find(string.lower(tName), wantName, 1, true) then
-                    local target = math.min(wantRank or maxRank or 1, maxRank or 1)
-                    if (curRank or 0) < target then
-                        return {
-                            tab = tabIdx,
-                            index = tIdx,
-                            name = tName,
-                            curRank = curRank or 0,
-                            targetRank = target,
-                            stepNum = stepIdx,
-                        }, build
+    if type(nodeInfo.activeEntry) == "table" and nodeInfo.activeEntry.entryID then
+        addEntry(nodeInfo.activeEntry.entryID)
+    end
+    if type(nodeInfo.entryIDs) == "table" then
+        for _, eid in ipairs(nodeInfo.entryIDs) do
+            addEntry(eid)
+        end
+    end
+    return names
+end
+
+local function GetActiveTraitConfigID(talentsFrame)
+    if talentsFrame and talentsFrame.GetConfigID then
+        local okC, cid = pcall(talentsFrame.GetConfigID, talentsFrame)
+        if okC and cid then return cid end
+    end
+    if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
+        local okC, cid = pcall(C_ClassTalents.GetActiveConfigID)
+        if okC and cid then return cid end
+    end
+    return nil
+end
+
+local function CollectModernTalentButtons(talentsFrame)
+    local buttons, seen = {}, {}
+    if not talentsFrame then return buttons end
+
+    if talentsFrame.EnumerateAllTalentButtons then
+        pcall(function()
+            for btn in talentsFrame:EnumerateAllTalentButtons() do
+                if btn and not seen[btn] then
+                    seen[btn] = true
+                    table.insert(buttons, btn)
+                end
+            end
+        end)
+    end
+    if #buttons == 0 and type(talentsFrame.nodeIDToButton) == "table" then
+        for _, btn in pairs(talentsFrame.nodeIDToButton) do
+            if btn and not seen[btn] then
+                seen[btn] = true
+                table.insert(buttons, btn)
+            end
+        end
+    end
+    if #buttons == 0 and talentsFrame.talentButtonCollection and talentsFrame.talentButtonCollection.EnumerateActive then
+        pcall(function()
+            for btn in talentsFrame.talentButtonCollection:EnumerateActive() do
+                if btn and not seen[btn] then
+                    seen[btn] = true
+                    table.insert(buttons, btn)
+                end
+            end
+        end)
+    end
+    if #buttons == 0 then
+        local container = talentsFrame.ButtonsParent or talentsFrame
+        if container and container.GetChildren then
+            local okCh, children = pcall(function() return { container:GetChildren() } end)
+            if okCh and type(children) == "table" then
+                for _, child in ipairs(children) do
+                    if child and not seen[child] and (child.GetNodeInfo or child.GetNodeID or child.GetSpellID or child.nodeInfo) then
+                        seen[child] = true
+                        table.insert(buttons, child)
                     end
                 end
             end
         end
     end
+    return buttons
+end
+
+local function GetButtonTalentMeta(btn, talentsFrame)
+    local names, seen = {}, {}
+    if not btn then return names, nil, nil end
+
+    if btn.GetSpellID then
+        local okS, sid = pcall(btn.GetSpellID, btn)
+        if okS and sid then
+            AddUniqueName(names, seen, GetSpellNameSafe(sid))
+        end
+    end
+    if btn.GetTalentName then
+        local okN, n = pcall(btn.GetTalentName, btn)
+        if okN then AddUniqueName(names, seen, n) end
+    end
+
+    local nodeInfo = nil
+    if btn.GetNodeInfo then
+        local okNI, ni = pcall(btn.GetNodeInfo, btn)
+        if okNI and type(ni) == "table" then nodeInfo = ni end
+    end
+    if not nodeInfo and type(btn.nodeInfo) == "table" then
+        nodeInfo = btn.nodeInfo
+    end
+
+    local nodeID = nil
+    if btn.GetNodeID then
+        local okID, id = pcall(btn.GetNodeID, btn)
+        if okID and id then nodeID = id end
+    end
+    if not nodeID and nodeInfo and nodeInfo.ID then
+        nodeID = nodeInfo.ID
+    end
+    if not nodeID and btn.nodeID then
+        nodeID = btn.nodeID
+    end
+
+    local configID = GetActiveTraitConfigID(talentsFrame)
+    if not nodeInfo and configID and nodeID and C_Traits and C_Traits.GetNodeInfo then
+        local okNI, ni = pcall(C_Traits.GetNodeInfo, configID, nodeID)
+        if okNI and type(ni) == "table" then nodeInfo = ni end
+    end
+
+    if nodeInfo then
+        for _, n in ipairs(GetNodeNames(configID, nodeInfo)) do
+            AddUniqueName(names, seen, n)
+        end
+    end
+
+    if type(btn.entryInfo) == "table" and btn.entryInfo.definitionID and C_Traits and C_Traits.GetDefinitionInfo then
+        local okD, defInfo = pcall(C_Traits.GetDefinitionInfo, btn.entryInfo.definitionID)
+        if okD and type(defInfo) == "table" then
+            AddUniqueName(names, seen, defInfo.overrideName)
+            if defInfo.spellID then
+                AddUniqueName(names, seen, GetSpellNameSafe(defInfo.spellID))
+            end
+        end
+    end
+
+    return names, nodeID, nodeInfo
+end
+
+local function FindModernRecommendedTalent(build)
+    local parent = TA:GetTalentParentFrame()
+    local talentsFrame = parent and parent.TalentsFrame
+    local configID = GetActiveTraitConfigID(talentsFrame)
+
+    local nodes = {}
+    local seenNodes = {}
+
+    if configID and C_Traits and C_Traits.GetTreeNodes and C_Traits.GetNodeInfo then
+        local treeIDs = {}
+        local seenTrees = {}
+        if talentsFrame and talentsFrame.GetTalentTreeID then
+            local okT, tid = pcall(talentsFrame.GetTalentTreeID, talentsFrame)
+            if okT and tid and not seenTrees[tid] then
+                seenTrees[tid] = true
+                table.insert(treeIDs, tid)
+            end
+        end
+        if C_Traits.GetConfigInfo then
+            local okCI, cfg = pcall(C_Traits.GetConfigInfo, configID)
+            if okCI and type(cfg) == "table" and type(cfg.treeIDs) == "table" then
+                for _, tid in ipairs(cfg.treeIDs) do
+                    if tid and not seenTrees[tid] then
+                        seenTrees[tid] = true
+                        table.insert(treeIDs, tid)
+                    end
+                end
+            end
+        end
+
+        for _, tid in ipairs(treeIDs) do
+            local okNodes, nodeIDs = pcall(C_Traits.GetTreeNodes, tid)
+            if okNodes and type(nodeIDs) == "table" then
+                for _, nodeID in ipairs(nodeIDs) do
+                    if nodeID and not seenNodes[nodeID] then
+                        local okNI, nodeInfo = pcall(C_Traits.GetNodeInfo, configID, nodeID)
+                        if okNI and type(nodeInfo) == "table" then
+                            local names = GetNodeNames(configID, nodeInfo)
+                            if #names > 0 then
+                                seenNodes[nodeID] = true
+                                table.insert(nodes, {
+                                    nodeID = nodeID,
+                                    names = names,
+                                    curRank = nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased or 0,
+                                    maxRank = nodeInfo.maxRanks or 1,
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if #nodes == 0 and talentsFrame then
+        for _, btn in ipairs(CollectModernTalentButtons(talentsFrame)) do
+            local names, nodeID, nodeInfo = GetButtonTalentMeta(btn, talentsFrame)
+            local key = nodeID or btn
+            if #names > 0 and not seenNodes[key] then
+                seenNodes[key] = true
+                table.insert(nodes, {
+                    nodeID = nodeID,
+                    names = names,
+                    curRank = (nodeInfo and (nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased)) or 0,
+                    maxRank = (nodeInfo and nodeInfo.maxRanks) or 1,
+                })
+            end
+        end
+    end
+
+    if #nodes == 0 then return nil end
+
+    for stepIdx, step in ipairs(build.order) do
+        local tabIdx, wantName, wantRank = step[1], string.lower(step[2]), step[3]
+        local bestNode, bestName = nil, nil
+        for _, node in ipairs(nodes) do
+            for _, n in ipairs(node.names) do
+                local low = string.lower(n)
+                if low == wantName then
+                    bestNode, bestName = node, n
+                    break
+                elseif not bestNode and string.find(low, wantName, 1, true) then
+                    bestNode, bestName = node, n
+                end
+            end
+            if bestNode and bestName and string.lower(bestName) == wantName then
+                break
+            end
+        end
+        if bestNode then
+            local target = math.min(wantRank or bestNode.maxRank or 1, bestNode.maxRank or 1)
+            if (bestNode.curRank or 0) < target then
+                return {
+                    tab = tabIdx,
+                    nodeID = bestNode.nodeID,
+                    name = bestName or bestNode.names[1],
+                    curRank = bestNode.curRank or 0,
+                    targetRank = target,
+                    stepNum = stepIdx,
+                    source = "modern",
+                }
+            end
+        end
+    end
+    return nil
+end
+
+-- Determine next recommended talent button based on current learned ranks
+function TA:FindNextRecommendedTalent()
+    local build = TA:GetSelectedBuild()
+    if not build or not build.order then
+        return nil, build
+    end
+
+    -- Classic 3-tab talent API path
+    if GetNumTalents and GetTalentInfo then
+        local sawAnyClassicTalents = false
+        for stepIdx, step in ipairs(build.order) do
+            local tabIdx, wantName, wantRank = step[1], string.lower(step[2]), step[3]
+            local okN, numTalents = pcall(GetNumTalents, tabIdx)
+            if okN and type(numTalents) == "number" and numTalents > 0 then
+                sawAnyClassicTalents = true
+                for tIdx = 1, numTalents do
+                    local okT, tName, _, _, _, curRank, maxRank = pcall(GetTalentInfo, tabIdx, tIdx)
+                    if okT and tName and not (C and C.IsSecret and C.IsSecret(tName)) and string.find(string.lower(tName), wantName, 1, true) then
+                        local target = math.min(wantRank or maxRank or 1, maxRank or 1)
+                        if (curRank or 0) < target then
+                            return {
+                                tab = tabIdx,
+                                index = tIdx,
+                                name = tName,
+                                curRank = curRank or 0,
+                                targetRank = target,
+                                stepNum = stepIdx,
+                                source = "classic",
+                            }, build
+                        end
+                    end
+                end
+            end
+        end
+        if sawAnyClassicTalents then
+            return nil, build
+        end
+    end
+
+    -- Modern PlayerSpellsFrame / C_Traits talent tree path
+    local modernPick = FindModernRecommendedTalent(build)
+    if modernPick then
+        return modernPick, build
+    end
+
     return nil, build
 end
 
--- Create WoW-style Gold Border around recommended next talent button
+-- Create high-contrast Gold Border + Additive Glow + NEXT Pill around recommended talent button
+local function SetSolidColorTexture(tex, r, g, b, a)
+    if tex.SetColorTexture then
+        tex:SetColorTexture(r, g, b, a)
+    else
+        tex:SetTexture("Interface\\Buttons\\WHITE8x8")
+        tex:SetVertexColor(r, g, b, a)
+    end
+end
+
 local function EnsureGoldBorder()
     if TA.glowFrame then return TA.glowFrame end
     local template = BackdropTemplateMixin and "BackdropTemplate" or nil
     local g = CreateFrame("Frame", "WOWEngineTalentGoldBorder", UIParent, template)
+    g:EnableMouse(false)
     g:SetFrameStrata("HIGH")
     g:SetFrameLevel(90)
-    if g.SetBackdrop then
+
+    -- Thick 3px solid bright gold edge framing the talent icon clearly over Blizzard's green border
+    local edgeSize = 3
+    local edgeR, edgeG, edgeB, edgeA = 1.0, 0.85, 0.08, 1.0
+
+    local topEdge = g:CreateTexture(nil, "OVERLAY")
+    SetSolidColorTexture(topEdge, edgeR, edgeG, edgeB, edgeA)
+    topEdge:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
+    topEdge:SetPoint("TOPRIGHT", g, "TOPRIGHT", 0, 0)
+    topEdge:SetHeight(edgeSize)
+
+    local bottomEdge = g:CreateTexture(nil, "OVERLAY")
+    SetSolidColorTexture(bottomEdge, edgeR, edgeG, edgeB, edgeA)
+    bottomEdge:SetPoint("BOTTOMLEFT", g, "BOTTOMLEFT", 0, 0)
+    bottomEdge:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", 0, 0)
+    bottomEdge:SetHeight(edgeSize)
+
+    local leftEdge = g:CreateTexture(nil, "OVERLAY")
+    SetSolidColorTexture(leftEdge, edgeR, edgeG, edgeB, edgeA)
+    leftEdge:SetPoint("TOPLEFT", g, "TOPLEFT", 0, -edgeSize)
+    leftEdge:SetPoint("BOTTOMLEFT", g, "BOTTOMLEFT", 0, edgeSize)
+    leftEdge:SetWidth(edgeSize)
+
+    local rightEdge = g:CreateTexture(nil, "OVERLAY")
+    SetSolidColorTexture(rightEdge, edgeR, edgeG, edgeB, edgeA)
+    rightEdge:SetPoint("TOPRIGHT", g, "TOPRIGHT", 0, -edgeSize)
+    rightEdge:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", 0, edgeSize)
+    rightEdge:SetWidth(edgeSize)
+
+    -- Additive gold action-button glow aura around the border
+    local glowTex = g:CreateTexture(nil, "OVERLAY")
+    glowTex:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    glowTex:SetBlendMode("ADD")
+    glowTex:SetVertexColor(1.0, 0.82, 0.0, 0.95)
+    glowTex:SetPoint("TOPLEFT", g, "TOPLEFT", -10, 10)
+    glowTex:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", 10, -10)
+    g.glowTex = glowTex
+
+    -- High-contrast dark pill with thin gold border for the "NEXT" label
+    local pill = CreateFrame("Frame", nil, g, template)
+    pill:EnableMouse(false)
+    pill:SetPoint("BOTTOM", g, "TOP", 0, 3)
+    if pill.SetBackdrop then
         pcall(function()
-            g:SetBackdrop({
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                edgeSize = 14,
+            pill:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                tile = false,
+                edgeSize = 1,
+                insets = { left = 1, right = 1, top = 1, bottom = 1 },
             })
-            g:SetBackdropBorderColor(1.0, 0.84, 0.0, 1.0)
+            pill:SetBackdropColor(0.0, 0.0, 0.0, 0.85)
+            pill:SetBackdropBorderColor(1.0, 0.82, 0.1, 0.95)
         end)
+    else
+        local pillBg = pill:CreateTexture(nil, "BACKGROUND")
+        SetSolidColorTexture(pillBg, 0.0, 0.0, 0.0, 0.85)
+        pillBg:SetAllPoints(pill)
     end
-    local badge = g:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    badge:SetPoint("BOTTOM", g, "TOP", 0, 2)
-    badge:SetText("|cffffd100NEXT|r")
+
+    local badge = pill:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fontPath = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    pcall(badge.SetFont, badge, fontPath, 12, "THICKOUTLINE")
+    badge:SetTextColor(1.0, 0.85, 0.1, 1.0)
+    badge:SetShadowOffset(1, -1)
+    badge:SetShadowColor(0.0, 0.0, 0.0, 0.9)
+    badge:SetPoint("CENTER", pill, "CENTER", 0, 0)
+    badge:SetText("NEXT")
+
+    local textW = (badge.GetStringWidth and badge:GetStringWidth()) or 36
+    pill:SetSize(math.max(math.ceil(textW) + 12, 48), 18)
+
+    g.badgePill = pill
     g.badge = badge
     g:Hide()
     TA.glowFrame = g
     return g
 end
 
+local function AnchorTalentBar(bar, parent)
+    if not bar or not parent then return end
+    if bar:GetParent() ~= parent then
+        bar:SetParent(parent)
+    end
+    bar:ClearAllPoints()
+    if parent == _G.PlayerSpellsFrame and parent.TitleContainer then
+        bar:SetPoint("BOTTOMLEFT", parent.TitleContainer, "TOPLEFT", 0, 4)
+    else
+        bar:SetPoint("BOTTOMLEFT", parent, "TOPLEFT", 16, 2)
+    end
+    bar:SetFrameStrata("HIGH")
+    local parentLevel = (parent.GetFrameLevel and parent:GetFrameLevel()) or 1
+    bar:SetFrameLevel(math.max(parentLevel + 10, 50))
+end
+
 function TA:EnsureTalentBar()
-    local parent = _G.PlayerTalentFrame
+    local parent = TA:GetTalentParentFrame()
     if not parent then return nil end
 
     if not TA.bar then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local bar = CreateFrame("Frame", "WOWEngineTalentBar", parent, template)
         bar:SetSize(340, 44)
-        bar:SetPoint("BOTTOMLEFT", parent, "TOPLEFT", 16, 2)
-        bar:SetFrameStrata("HIGH")
         if bar.SetBackdrop then
             pcall(function()
                 bar:SetBackdrop({
@@ -467,7 +860,101 @@ function TA:EnsureTalentBar()
 
         TA.bar = bar
     end
+
+    AnchorTalentBar(TA.bar, parent)
     return TA.bar
+end
+
+local function IsButtonVisible(btn)
+    if not btn or not btn:IsShown() then return false end
+    if btn.IsVisible and not btn:IsVisible() then return false end
+    return true
+end
+
+local function FindRecommendedTalentButton(parent, nextPick)
+    if not parent or not nextPick then return nil, nil end
+
+    -- Modern PlayerSpellsFrame / ClassTalentFrame TalentsFrame nodes/buttons
+    local talentsFrame = parent.TalentsFrame
+    if talentsFrame then
+        if not talentsFrame:IsShown() then
+            return nil, nil
+        end
+
+        if nextPick.nodeID then
+            if talentsFrame.GetTalentButtonByNodeID then
+                local okB, btn = pcall(talentsFrame.GetTalentButtonByNodeID, talentsFrame, nextPick.nodeID)
+                if okB and IsButtonVisible(btn) then
+                    return btn, talentsFrame
+                end
+            end
+            if type(talentsFrame.nodeIDToButton) == "table" then
+                local btn = talentsFrame.nodeIDToButton[nextPick.nodeID]
+                if IsButtonVisible(btn) then
+                    return btn, talentsFrame
+                end
+            end
+        end
+
+        local wantLower = nextPick.name and string.lower(nextPick.name)
+        local partialMatch = nil
+        for _, btn in ipairs(CollectModernTalentButtons(talentsFrame)) do
+            if IsButtonVisible(btn) then
+                local names, btnNodeID = GetButtonTalentMeta(btn, talentsFrame)
+                if nextPick.nodeID and btnNodeID and btnNodeID == nextPick.nodeID then
+                    return btn, talentsFrame
+                end
+                if wantLower and names then
+                    for _, n in ipairs(names) do
+                        local low = string.lower(n)
+                        if low == wantLower then
+                            return btn, talentsFrame
+                        elseif not partialMatch and string.find(low, wantLower, 1, true) then
+                            partialMatch = btn
+                        end
+                    end
+                end
+            end
+        end
+        if partialMatch then
+            return partialMatch, talentsFrame
+        end
+
+        -- Fallback if a hybrid client renders Classic talent buttons inside TalentsFrame
+        if nextPick.index then
+            local classicBtn = _G["PlayerTalentFrameTalent" .. nextPick.index]
+                or _G["TalentFrameTalent" .. nextPick.index]
+            if IsButtonVisible(classicBtn) then
+                return classicBtn, talentsFrame
+            end
+        end
+        return nil, nil
+    end
+
+    -- Classic PlayerTalentFrame / TalentFrame tab & button lookup
+    local activeTab = (PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(parent)) or parent.selectedTab or 1
+    if nextPick.tab and activeTab ~= nextPick.tab then
+        return nil, nil
+    end
+    if nextPick.index then
+        local btn = _G["PlayerTalentFrameTalent" .. nextPick.index]
+            or _G["TalentFrameTalent" .. nextPick.index]
+            or parent["Talent" .. nextPick.index]
+        if IsButtonVisible(btn) then
+            return btn, parent
+        end
+    end
+    return nil, nil
+end
+
+function TA:ScheduleHighlightRefresh()
+    if not (C_Timer and C_Timer.After) then return end
+    if TA.refreshPending then return end
+    TA.refreshPending = true
+    C_Timer.After(0.05, function()
+        TA.refreshPending = false
+        pcall(function() TA:UpdateTalentHighlight() end)
+    end)
 end
 
 function TA:UpdateTalentHighlight()
@@ -478,32 +965,43 @@ function TA:UpdateTalentHighlight()
     if bar then
         bar.specBtn:SetText(build and build.label or "Select Pre-Load")
         if nextPick then
-            bar.nextTxt:SetText(string.format("|cffffd100Next Pick (Tab %d):|r |cff00ff00%s|r (%d/%d)",
-                nextPick.tab, nextPick.name, nextPick.curRank, nextPick.targetRank))
+            if nextPick.source == "modern" then
+                bar.nextTxt:SetText(string.format("|cffffd100Next Pick:|r |cff00ff00%s|r (%d/%d)",
+                    nextPick.name, nextPick.curRank, nextPick.targetRank))
+            else
+                bar.nextTxt:SetText(string.format("|cffffd100Next Pick (Tab %d):|r |cff00ff00%s|r (%d/%d)",
+                    nextPick.tab, nextPick.name, nextPick.curRank, nextPick.targetRank))
+            end
         else
             bar.nextTxt:SetText("|cff00ff00Pre-load core talents complete!|r")
         end
     end
 
     local glow = EnsureGoldBorder()
-    local parent = _G.PlayerTalentFrame
+    local parent = TA:GetTalentParentFrame()
     if not parent or not parent:IsShown() or not nextPick then
         glow:Hide()
         return
     end
 
-    local activeTab = (PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(parent)) or parent.selectedTab or 1
-    if activeTab ~= nextPick.tab then
-        glow:Hide()
-        return
-    end
-
-    local btn = _G["PlayerTalentFrameTalent" .. nextPick.index]
-    if btn and btn:IsShown() then
-        glow:SetParent(parent)
+    local btn, host = FindRecommendedTalentButton(parent, nextPick)
+    if btn then
+        local targetHost = host or parent
+        if glow:GetParent() ~= targetHost then
+            glow:SetParent(targetHost)
+        end
+        local strata = (btn.GetFrameStrata and btn:GetFrameStrata()) or "HIGH"
+        glow:SetFrameStrata(strata)
+        local btnLevel = (btn.GetFrameLevel and btn:GetFrameLevel()) or 10
+        local highlightLevel = btnLevel + 10
+        glow:SetFrameLevel(highlightLevel)
+        if glow.badgePill then
+            glow.badgePill:SetFrameStrata(strata)
+            glow.badgePill:SetFrameLevel(highlightLevel + 2)
+        end
         glow:ClearAllPoints()
-        glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -4, 4)
-        glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 4, -4)
+        glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+        glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
         glow:Show()
         glow:Raise()
     else
@@ -512,20 +1010,82 @@ function TA:UpdateTalentHighlight()
 end
 
 function TA:HookTalentFrame()
-    local parent = _G.PlayerTalentFrame
-    if not parent or TA.hooked then return end
-    TA.hooked = true
-    parent:HookScript("OnShow", function()
+    local parent = TA:GetTalentParentFrame()
+    if not parent then return end
+
+    if not TA.hookedFrames[parent] then
+        TA.hookedFrames[parent] = true
+        parent:HookScript("OnShow", function()
+            pcall(function()
+                TA:HookTalentFrame()
+                TA:EnsureTalentBar()
+                TA:UpdateTalentHighlight()
+                TA:ScheduleHighlightRefresh()
+            end)
+        end)
+        parent:HookScript("OnHide", function()
+            if TA.glowFrame then TA.glowFrame:Hide() end
+        end)
+        if hooksecurefunc and type(parent.SetTab) == "function" and not TA.hookedFuncs["parent_SetTab"] then
+            TA.hookedFuncs["parent_SetTab"] = true
+            hooksecurefunc(parent, "SetTab", function()
+                pcall(function()
+                    TA:HookTalentFrame()
+                    TA:UpdateTalentHighlight()
+                    TA:ScheduleHighlightRefresh()
+                end)
+            end)
+        end
+    end
+
+    local talentsFrame = parent.TalentsFrame
+    if talentsFrame and not TA.hookedFrames[talentsFrame] then
+        TA.hookedFrames[talentsFrame] = true
+        talentsFrame:HookScript("OnShow", function()
+            pcall(function()
+                TA:EnsureTalentBar()
+                TA:UpdateTalentHighlight()
+                TA:ScheduleHighlightRefresh()
+            end)
+        end)
+        talentsFrame:HookScript("OnHide", function()
+            if TA.glowFrame then TA.glowFrame:Hide() end
+        end)
+        if hooksecurefunc then
+            if type(talentsFrame.LoadTalentTreeInternal) == "function" and not TA.hookedFuncs["LoadTalentTreeInternal"] then
+                TA.hookedFuncs["LoadTalentTreeInternal"] = true
+                hooksecurefunc(talentsFrame, "LoadTalentTreeInternal", function()
+                    pcall(function() TA:ScheduleHighlightRefresh() end)
+                end)
+            end
+            if type(talentsFrame.UpdateAllButtons) == "function" and not TA.hookedFuncs["UpdateAllButtons"] then
+                TA.hookedFuncs["UpdateAllButtons"] = true
+                hooksecurefunc(talentsFrame, "UpdateAllButtons", function()
+                    pcall(function() TA:ScheduleHighlightRefresh() end)
+                end)
+            end
+        end
+    end
+
+    if hooksecurefunc then
+        if _G.PlayerTalentFrame_Update and not TA.hookedFuncs["PlayerTalentFrame_Update"] then
+            TA.hookedFuncs["PlayerTalentFrame_Update"] = true
+            hooksecurefunc("PlayerTalentFrame_Update", function()
+                pcall(function() TA:UpdateTalentHighlight() end)
+            end)
+        end
+        if _G.TalentFrame_Update and not TA.hookedFuncs["TalentFrame_Update"] then
+            TA.hookedFuncs["TalentFrame_Update"] = true
+            hooksecurefunc("TalentFrame_Update", function()
+                pcall(function() TA:UpdateTalentHighlight() end)
+            end)
+        end
+    end
+
+    if parent:IsShown() then
         TA:EnsureTalentBar()
         TA:UpdateTalentHighlight()
-    end)
-    parent:HookScript("OnHide", function()
-        if TA.glowFrame then TA.glowFrame:Hide() end
-    end)
-    if hooksecurefunc and _G.PlayerTalentFrame_Update then
-        hooksecurefunc("PlayerTalentFrame_Update", function()
-            pcall(function() TA:UpdateTalentHighlight() end)
-        end)
+        TA:ScheduleHighlightRefresh()
     end
 end
 
@@ -533,8 +1093,13 @@ function TA:PrintNextPick()
     local nextPick, build = TA:FindNextRecommendedTalent()
     NS:Print("Active Spec Pre-Load: |cffffd100" .. (build and build.label or "?") .. "|r")
     if nextPick then
-        NS:Print(string.format("  Next Recommended Talent: |cff00ff00%s|r (Tab %d | Rank %d/%d)",
-            nextPick.name, nextPick.tab, nextPick.curRank, nextPick.targetRank))
+        if nextPick.source == "modern" then
+            NS:Print(string.format("  Next Recommended Talent: |cff00ff00%s|r (Rank %d/%d)",
+                nextPick.name, nextPick.curRank, nextPick.targetRank))
+        else
+            NS:Print(string.format("  Next Recommended Talent: |cff00ff00%s|r (Tab %d | Rank %d/%d)",
+                nextPick.name, nextPick.tab, nextPick.curRank, nextPick.targetRank))
+        end
     else
         NS:Print("  Open your Talent Tree (N) to view the docked pre-load bar & gold border highlight.")
     end
@@ -543,13 +1108,20 @@ end
 local taEvents = CreateFrame("Frame")
 taEvents:RegisterEvent("ADDON_LOADED")
 taEvents:RegisterEvent("PLAYER_LOGIN")
-taEvents:RegisterEvent("CHARACTER_POINTS_CHANGED")
-taEvents:RegisterEvent("PLAYER_LEVEL_UP")
+pcall(taEvents.RegisterEvent, taEvents, "CHARACTER_POINTS_CHANGED")
+pcall(taEvents.RegisterEvent, taEvents, "PLAYER_LEVEL_UP")
+pcall(taEvents.RegisterEvent, taEvents, "PLAYER_TALENT_UPDATE")
+pcall(taEvents.RegisterEvent, taEvents, "TRAIT_CONFIG_UPDATED")
+pcall(taEvents.RegisterEvent, taEvents, "ACTIVE_TALENT_GROUP_CHANGED")
 taEvents:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" and (arg1 == "Blizzard_TalentUI" or arg1 == addonName) then
-        pcall(function() TA:HookTalentFrame() end)
+    if event == "ADDON_LOADED" then
+        if arg1 == "Blizzard_PlayerSpells" or arg1 == "Blizzard_TalentUI" or arg1 == "Blizzard_ClassTalentUI" or arg1 == addonName then
+            pcall(function() TA:HookTalentFrame() end)
+        end
     elseif event == "PLAYER_LOGIN" then
-        pcall(function() TA:HookTalentFrame() end)
+        if _G.PlayerSpellsFrame or TA:GetTalentParentFrame() then
+            pcall(function() TA:HookTalentFrame() end)
+        end
     else
         pcall(function() TA:UpdateTalentHighlight() end)
     end

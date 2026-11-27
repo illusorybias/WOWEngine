@@ -50,6 +50,34 @@ local function GetLivePlayerStats()
     }
 end
 
+local function FitSpecButtonText(btn, padX)
+    if not btn or not btn.GetFontString then return end
+    local fs = btn:GetFontString()
+    if not fs then return end
+    padX = padX or 10
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", btn, "LEFT", padX, 0)
+    fs:SetPoint("RIGHT", btn, "RIGHT", -padX, 0)
+    fs:SetJustifyH("CENTER")
+    fs:SetJustifyV("MIDDLE")
+    if fs.SetWordWrap then fs:SetWordWrap(false) end
+    if fs.SetMaxLines then fs:SetMaxLines(1) end
+
+    local btnW = (btn.GetWidth and btn:GetWidth()) or 0
+    local maxW = (btnW > 0 and btnW or 343) - (padX * 2)
+    if maxW <= 0 then return end
+
+    local fontPath, _, fontFlags = fs:GetFont()
+    fontPath = fontPath or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    for _, size in ipairs({ 12, 11, 10, 9 }) do
+        pcall(fs.SetFont, fs, fontPath, size, fontFlags)
+        local textW = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or (fs.GetStringWidth and fs:GetStringWidth()) or 0
+        if textW <= maxW then
+            break
+        end
+    end
+end
+
 function SC:BuildFrame()
     if SC.frame then return SC.frame end
     local template = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -83,7 +111,7 @@ function SC:BuildFrame()
     end
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 14, -12)
+    title:SetPoint("TOPLEFT", 16, -12)
     title:SetText("|cff00aeffWOWEngine|r |cffffd100Stat Caps & Targets|r")
 
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
@@ -91,8 +119,11 @@ function SC:BuildFrame()
     closeBtn:SetScript("OnClick", function() f:Hide() end)
 
     local specBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    specBtn:SetSize(250, 22)
-    specBtn:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    specBtn:SetHeight(24)
+    specBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -42)
+    specBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -42)
+    specBtn:SetText("")
+    FitSpecButtonText(specBtn, 10)
     specBtn:SetScript("OnClick", function()
         if NS.TalentAdvisor and NS.TalentAdvisor.CycleBuild then
             NS.TalentAdvisor:CycleBuild()
@@ -102,13 +133,13 @@ function SC:BuildFrame()
 
     local body = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     body:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -10)
-    body:SetWidth(346)
+    body:SetPoint("TOPRIGHT", specBtn, "BOTTOMRIGHT", 0, -10)
     body:SetJustifyH("LEFT")
     f.body = body
 
     local closeFoot = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     closeFoot:SetSize(80, 22)
-    closeFoot:SetPoint("BOTTOMRIGHT", -12, 10)
+    closeFoot:SetPoint("BOTTOMRIGHT", -16, 10)
     closeFoot:SetText("Close")
     closeFoot:SetScript("OnClick", function() f:Hide() end)
 
@@ -123,6 +154,7 @@ function SC:Refresh()
     if not build then return end
 
     SC.frame.specBtn:SetText(build.label .. " (Click to Switch)")
+    FitSpecButtonText(SC.frame.specBtn, 10)
     local caps = build.caps or {}
     local lines = {
         "|cffffd100Role:|r " .. tostring(build.role or "DPS"),
