@@ -1,7 +1,7 @@
 local addonName, NS = ...
 _G.WOWEngine = NS
 
-NS.Version = "1.3.10"
+NS.Version = "1.6.0"
 NS.Brand = "IllusoryBias"
 NS.Modules = {}
 
@@ -12,7 +12,8 @@ NS.CATEGORIES = {
     { key = "Ore",        label = "Ore / Stone / Bars" },
     { key = "Leather",    label = "Leather / Hides" },
     { key = "Cloth",      label = "Cloth / Tailoring" },
-    { key = "BankAlt",    label = "BoEs / Bank Vault" },
+    { key = "DisenchantBoE", label = "AH / Disenchantable BoEs" },
+    { key = "BankAlt",       label = "BoEs / Bank Vault" },
 }
 
 local LEGACY_PLACEHOLDERS = {
@@ -51,6 +52,48 @@ end
 function NS:RegisterModule(modName, modData)
     NS.Modules[modName] = modData
 end
+
+-- Unified Faction Profile (replaces separate HordeEngine & AllianceEngine addons)
+function NS:GetFactionProfile()
+    local _, faction = NS:GetContextKeys()
+    if faction == "Horde" then
+        return {
+            faction = "Horde",
+            suiteName = "Horde 4-Wave Suite",
+            plan = "18-Character / 27-Tree / 4-Wave Horde",
+            defaultWaves = {
+                { wave = 1, name = "Wave 1 (Starter & Hubs)",   targetLevel = 20 },
+                { wave = 2, name = "Wave 2 (Mount & Mid-Zone)", targetLevel = 40 },
+                { wave = 3, name = "Wave 3 (Pre-Endgame)",      targetLevel = 50 },
+                { wave = 4, name = "Wave 4 (Max Level Cap)",    targetLevel = 60 },
+            },
+        }
+    elseif faction == "Alliance" then
+        return {
+            faction = "Alliance",
+            suiteName = "Alliance Zero-Duplicate Suite",
+            plan = "26-Race / 13-Class Zero-Duplicate Alliance",
+            defaultWaves = {
+                { wave = 1, name = "Wave 1 (Starter & Hubs)",   targetLevel = 20 },
+                { wave = 2, name = "Wave 2 (Mount & Mid-Zone)", targetLevel = 40 },
+                { wave = 3, name = "Wave 3 (Pre-Endgame)",      targetLevel = 50 },
+                { wave = 4, name = "Wave 4 (Max Level Cap)",    targetLevel = 60 },
+            },
+        }
+    end
+    return {
+        faction = faction or "Neutral",
+        suiteName = "Neutral Core Suite",
+        plan = "Multi-Version Roster",
+        defaultWaves = {
+            { wave = 1, name = "Wave 1", targetLevel = 20 },
+            { wave = 2, name = "Wave 2", targetLevel = 40 },
+            { wave = 3, name = "Wave 3", targetLevel = 50 },
+            { wave = 4, name = "Wave 4", targetLevel = 60 },
+        },
+    }
+end
+
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
@@ -103,16 +146,21 @@ function NS:EnsureDB()
     WOWEngineDB.manualCatsByRealm = WOWEngineDB.manualCatsByRealm or {}
     WOWEngineDB.rrCursorByRealm = WOWEngineDB.rrCursorByRealm or {}
     WOWEngineDB.goldLedger = WOWEngineDB.goldLedger or {}
-    WOWEngineDB.waveState = WOWEngineDB.waveState or { currentWave = 1, snoozedUntil = 0 }
+    WOWEngineDB.waveByRealm = WOWEngineDB.waveByRealm or {}
+    WOWEngineDB.charPlansByRealm = WOWEngineDB.charPlansByRealm or {}
+    WOWEngineDB.selectedSpecs = WOWEngineDB.selectedSpecs or {}
     WOWEngineDB.brandHandle = WOWEngineDB.brandHandle or "Illusorybias"
+    WOWEngineDB.bugReportUrl = WOWEngineDB.bugReportUrl or "https://github.com/IllusoryBias/WOWEngine/issues/new?template=bug_report.yml"
 
     if WOWEngineDB.minimapAngle == nil then WOWEngineDB.minimapAngle = 215 end
     if WOWEngineDB.minimapHide == nil then WOWEngineDB.minimapHide = false end
+    if WOWEngineDB.minimapLock == nil then WOWEngineDB.minimapLock = false end
     if WOWEngineDB.protectMastercraftQueue == nil then WOWEngineDB.protectMastercraftQueue = true end
     if WOWEngineDB.protectAuctionatorPosted == nil then WOWEngineDB.protectAuctionatorPosted = true end
     if WOWEngineDB.syncAltoholic == nil then WOWEngineDB.syncAltoholic = true end
     if WOWEngineDB.onboardingCompleted == nil then WOWEngineDB.onboardingCompleted = false end
     if WOWEngineDB.multiAltMode == nil then WOWEngineDB.multiAltMode = "roundrobin" end
+    if WOWEngineDB.mastercraftPriority == nil then WOWEngineDB.mastercraftPriority = "leveling" end
     if WOWEngineDB.keepOwnCategoryMats == nil then WOWEngineDB.keepOwnCategoryMats = true end
 
     WOWEngineDB.routingRules = nil
@@ -132,6 +180,31 @@ function NS:EnsureDB()
 
     WOWEngineDB.rrCursorByRealm[realm] = WOWEngineDB.rrCursorByRealm[realm] or {}
     WOWEngineDB.rrCursorByRealm[realm][faction] = WOWEngineDB.rrCursorByRealm[realm][faction] or {}
+
+    WOWEngineDB.charPlansByRealm[realm] = WOWEngineDB.charPlansByRealm[realm] or {}
+    WOWEngineDB.charPlansByRealm[realm][faction] = WOWEngineDB.charPlansByRealm[realm][faction] or {}
+
+    WOWEngineDB.waveByRealm[realm] = WOWEngineDB.waveByRealm[realm] or {}
+    if not WOWEngineDB.waveByRealm[realm][faction] then
+        WOWEngineDB.waveByRealm[realm][faction] = {
+            currentWave = 1,
+            gates = { 25, 45, 60 },
+            snoozedUntilByChar = {},
+            completedChecklist = {},
+            autoPromptEnabled = true,
+            includeAltoholicInWave = false,
+            dockQuestieHeader = true,
+            questieHeaderCollapsed = false,
+        }
+    end
+    local ws = WOWEngineDB.waveByRealm[realm][faction]
+    if ws.includeAltoholicInWave == nil then ws.includeAltoholicInWave = false end
+    if ws.dockQuestieHeader == nil then ws.dockQuestieHeader = true end
+    if ws.questieHeaderCollapsed == nil then ws.questieHeaderCollapsed = false end
+    if ws.intent == nil then ws.intent = "economy" end
+    if ws.waveAssignments == nil then ws.waveAssignments = {} end
+    if ws.wizardCompleted == nil then ws.wizardCompleted = false end
+    if not ws.gates or #ws.gates == 4 then ws.gates = { 25, 45, 60 } end
 
     -- Run one-time migration per realm/faction context (never mutates active tables mid-write!)
     local ctxKey = realm .. "|" .. faction
@@ -187,6 +260,18 @@ function NS:GetRRCursors()
     return WOWEngineDB.rrCursorByRealm[realm][faction]
 end
 
+function NS:GetWaveState()
+    NS:EnsureDB()
+    local realm, faction = NS:GetContextKeys()
+    return WOWEngineDB.waveByRealm[realm][faction]
+end
+
+function NS:GetCharPlans()
+    NS:EnsureDB()
+    local realm, faction = NS:GetContextKeys()
+    return WOWEngineDB.charPlansByRealm[realm][faction]
+end
+
 function NS:UpdateGoldLedger()
     NS:EnsureDB()
     local name = NS.Compat.GetPlayerName()
@@ -214,11 +299,29 @@ local function SafeShowOnboarding(stepNum)
     end
 end
 
+
+-- Check optimal companion addons (Altoholic, Mastercraft, Questie, Auctionator)
+function NS:GetCompanionAddonStatus()
+    local C = NS.Compat
+    local hasAlto = C and C.IsAltoholicAvailable and C.IsAltoholicAvailable() or false
+    local hasMC = C and C.IsMastercraftAvailable and C.IsMastercraftAvailable() or false
+    local hasQuestie = (NS.WaveTracker and NS.WaveTracker.IsQuestieLoaded and NS.WaveTracker:IsQuestieLoaded())
+        or (_G.Questie ~= nil) or (_G.QuestieLoader ~= nil) or (C and C.IsAddOnLoaded and C.IsAddOnLoaded("Questie")) or false
+    local hasAuc = C and C.IsAuctionatorAvailable and C.IsAuctionatorAvailable() or false
+    local missing = {}
+    if not hasAlto then table.insert(missing, "Altoholic (+ DataStore)") end
+    if not hasMC then table.insert(missing, "Mastercraft") end
+    if not hasQuestie then table.insert(missing, "Questie") end
+    if not hasAuc then table.insert(missing, "Auctionator") end
+    return hasAlto, hasMC, hasQuestie, hasAuc, missing
+end
+
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         NS:EnsureDB()
         local ver, _, _, iface = GetBuildInfo()
-        NS:Print("v" .. NS.Version .. " (" .. NS.Brand .. " Integrated | Client " .. tostring(ver) .. " / Interface " .. tostring(iface) .. "). Type |cffffd100/he setup|r for interactive onboarding.")
+        local fp = NS:GetFactionProfile()
+        NS:Print("v" .. NS.Version .. " Unified (" .. NS.Brand .. " | " .. fp.suiteName .. " | Client " .. tostring(ver) .. " / Interface " .. tostring(iface) .. "). Type |cffffd100/he setup|r or |cffffd100/he wave|r.")
     elseif event == "PLAYER_LOGIN" then
         NS:EnsureDB()
         if NS.Roster and NS.Roster.ScanAll then
@@ -231,6 +334,13 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             end
         end
         NS:UpdateGoldLedger()
+        if NS.WaveTracker and NS.WaveTracker.OnLogin then
+            pcall(function() NS.WaveTracker:OnLogin() end)
+        end
+        local _, _, _, _, missingAddons = NS:GetCompanionAddonStatus()
+        if #missingAddons > 0 then
+            NS:Print("|cffff9900Optimal Setup Notice:|r Missing " .. table.concat(missingAddons, ", ") .. ". Some features are limited — open |cffffd100/he setup|r (Step 4) or |cffffd100Options -> AddOns -> WOWEngine|r for details.")
+        end
         if not WOWEngineDB.onboardingCompleted then
             if C_Timer and C_Timer.After then
                 C_Timer.After(1.0, function()
@@ -244,5 +354,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         end
     elseif event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
         NS:UpdateGoldLedger()
+        if NS.WaveTracker and NS.WaveTracker.OnLogin then
+            pcall(function() NS.WaveTracker:OnLogin() end)
+        end
     end
 end)

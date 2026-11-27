@@ -6,6 +6,14 @@ local C = NS.Compat
 BR.recentErrors = {}
 BR.maxErrors = 12
 BR.frame = nil
+BR.DEFAULT_URL = "https://github.com/IllusoryBias/WOWEngine/issues/new?template=bug_report.yml"
+
+function BR:GetSubmissionURL()
+    if WOWEngineDB and type(WOWEngineDB.bugReportUrl) == "string" and WOWEngineDB.bugReportUrl ~= "" then
+        return WOWEngineDB.bugReportUrl
+    end
+    return BR.DEFAULT_URL
+end
 
 -- Record internal pcall-caught errors cleanly (no taint, never overrides Blizzard error handler)
 function NS:RecordError(context, errMsg)
@@ -20,7 +28,7 @@ function NS:RecordError(context, errMsg)
     end
 end
 
--- Pull any WOWEngine/HordeEngine/AllianceEngine errors from BugGrabber if installed
+-- Pull any WOWEngine errors from BugGrabber if installed
 local function CollectBugGrabberErrors()
     local found = {}
     if _G.BugGrabber and _G.BugGrabber.GetDB then
@@ -30,7 +38,7 @@ local function CollectBugGrabberErrors()
                 local err = db[i]
                 if type(err) == "table" and type(err.message) == "string" then
                     local m = err.message
-                    if string.find(m, "WOWEngine") or string.find(m, "HordeEngine") or string.find(m, "AllianceEngine") then
+                    if string.find(m, "WOWEngine") then
                         local stack = type(err.stack) == "string" and ("\n" .. err.stack) or ""
                         table.insert(found, string.format("[%s] %s%s", tostring(err.time or "?"), m, stack))
                         if #found >= 5 then break end
@@ -105,7 +113,7 @@ function BR:Show()
     if not BR.frame then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local f = CreateFrame("Frame", "WOWEngineBugReportFrame", UIParent, template)
-        f:SetSize(540, 390)
+        f:SetSize(560, 445)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
         f:SetFrameStrata("DIALOG")
         f:SetFrameLevel(140)
@@ -141,29 +149,59 @@ function BR:Show()
         closeBtn:SetPoint("TOPRIGHT", -4, -4)
         closeBtn:SetScript("OnClick", function() f:Hide() end)
 
-        local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-        hint:SetWidth(500)
-        hint:SetJustifyH("LEFT")
-        hint:SetText("Press |cffffd100Ctrl+C|r to copy this report, then paste it into a new GitHub Issue so the WOWEngine Error-Triage Agent can diagnose and patch it automatically.")
+        -- Step 1: Direct Bug Submission URL Box
+        local urlLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        urlLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+        urlLabel:SetText("|cffffd100Step 1:|r Copy this URL and paste it in your browser:")
+
+        local urlBox = CreateFrame("EditBox", "WOWEngineBugUrlEditBox", f, "InputBoxTemplate")
+        urlBox:SetSize(400, 22)
+        urlBox:SetPoint("TOPLEFT", urlLabel, "BOTTOMLEFT", 4, -6)
+        urlBox:SetAutoFocus(false)
+        urlBox:SetScript("OnEscapePressed", function() f:Hide() end)
+        urlBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+        urlBox:SetScript("OnTextChanged", function(self, userInput)
+            if userInput then
+                -- Keep URL read-only during accidental keypresses
+                self:SetText(BR:GetSubmissionURL())
+                self:HighlightText()
+            end
+        end)
+        f.urlBox = urlBox
+
+        local copyUrlBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        copyUrlBtn:SetSize(124, 22)
+        copyUrlBtn:SetPoint("LEFT", urlBox, "RIGHT", 8, 0)
+        copyUrlBtn:SetText("Select URL (Ctrl+C)")
+        copyUrlBtn:SetScript("OnClick", function()
+            f.urlBox:SetText(BR:GetSubmissionURL())
+            f.urlBox:SetFocus()
+            f.urlBox:HighlightText()
+            NS:Print("Bug submission URL highlighted — press |cffffd100Ctrl+C|r and paste into your browser.")
+        end)
+
+        -- Step 2: Copy-Pasteable Diagnostic & Error Log Box
+        local reportLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        reportLabel:SetPoint("TOPLEFT", urlBox, "BOTTOMLEFT", -4, -12)
+        reportLabel:SetText("|cffffd100Step 2:|r Copy these details, paste into the GitHub form, and click Submit:")
 
         local scroll = CreateFrame("ScrollFrame", "WOWEngineBugReportScroll", f, "UIPanelScrollFrameTemplate")
-        scroll:SetPoint("TOPLEFT", 14, -68)
-        scroll:SetPoint("BOTTOMRIGHT", -34, 44)
+        scroll:SetPoint("TOPLEFT", 14, -118)
+        scroll:SetPoint("BOTTOMRIGHT", -34, 46)
 
         local editBox = CreateFrame("EditBox", "WOWEngineBugReportEditBox", scroll)
         editBox:SetMultiLine(true)
         editBox:SetFontObject("ChatFontNormal")
-        editBox:SetWidth(480)
+        editBox:SetWidth(500)
         editBox:SetAutoFocus(false)
         editBox:SetScript("OnEscapePressed", function() f:Hide() end)
         scroll:SetScrollChild(editBox)
         f.editBox = editBox
 
         local selectBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        selectBtn:SetSize(130, 24)
+        selectBtn:SetSize(145, 24)
         selectBtn:SetPoint("BOTTOMLEFT", 14, 12)
-        selectBtn:SetText("Select All (Ctrl+C)")
+        selectBtn:SetText("Select Report (Ctrl+C)")
         selectBtn:SetScript("OnClick", function()
             f.editBox:SetFocus()
             f.editBox:HighlightText()
@@ -188,10 +226,10 @@ function BR:Show()
         BR.frame = f
     end
 
-    local text = BR:GenerateReportText()
-    BR.frame.editBox:SetText(text)
+    BR.frame.urlBox:SetText(BR:GetSubmissionURL())
+    BR.frame.editBox:SetText(BR:GenerateReportText())
     BR.frame:Show()
     BR.frame:Raise()
-    BR.frame.editBox:SetFocus()
-    BR.frame.editBox:HighlightText()
+    BR.frame.urlBox:SetFocus()
+    BR.frame.urlBox:HighlightText()
 end

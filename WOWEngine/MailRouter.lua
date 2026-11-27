@@ -186,8 +186,17 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
     local cat = ClassifyTradeGoodByName(itemName)
     if cat then return cat, itemName end
 
-    if quality and (quality == 2 or quality == 3) and (classID == 2 or classID == 4 or itemType == "Armor" or itemType == "Weapon") then
-        return "BankAlt", itemName
+    -- Tradeable Uncommon/Rare/Epic Armor & Weapons (BoEs) -> Enchanter DisenchantBoE if configured, else BankAlt
+    if quality and (quality >= 2 and quality <= 4) and (classID == 2 or classID == 4 or itemType == "Armor" or itemType == "Weapon") then
+        -- Exclude shirts (INVTYPE_BODY) and tabards (INVTYPE_TABARD) which cannot be disenchanted
+        local _, _, _, _, _, _, _, _, equipLoc = C.GetItemInfo(itemLink)
+        if equipLoc ~= "INVTYPE_BODY" and equipLoc ~= "INVTYPE_TABARD" then
+            local deTargets = NS.Roster:GetCategoryTargets("DisenchantBoE")
+            if type(deTargets) == "table" and #deTargets > 0 then
+                return "DisenchantBoE", itemName
+            end
+            return "BankAlt", itemName
+        end
     end
 
     return nil, itemName
@@ -235,6 +244,7 @@ function MR:BuildShipmentPlan(forcedTarget)
     local mode = (WOWEngineDB and WOWEngineDB.multiAltMode) or "roundrobin"
     local rrCursors = NS:GetRRCursors()
     local localOffset = {}
+    local simBagState = {}
 
     local byRecipient = {}
     local recipientOrder = {}
@@ -293,6 +303,15 @@ function MR:BuildShipmentPlan(forcedTarget)
                                 localOffset["Custom"] = off + 1
                             end
                         else
+                            -- Priority 1.5: Smart Bag Upgrade Routing (Level -> Played Time -> Total Space; respects Hunter Quivers & Reagent > Specialty rule)
+                            local bagInfo = NS.BagRouter and NS.BagRouter:InspectBagItem(link, itemID, bag, slot) or nil
+                            if bagInfo then
+                                local bagDest = NS.BagRouter:FindBestRecipientForBag(bagInfo, simBagState)
+                                if bagDest then
+                                    dest = bagDest
+                                    routeLabel = "BagUpgrade"
+                                end
+                            else
                             -- Priority 2: Standard Category Routing (respects Mastercraft & Auctionator holds)
                             local addonHeld = MR:IsAddonHoldProtected(itemID)
                             if addonHeld then
@@ -314,6 +333,7 @@ function MR:BuildShipmentPlan(forcedTarget)
                                     dest = eligible[pickIdx]
                                     localOffset[cat] = off + 1
                                 end
+                            end
                             end
                         end
                     end
@@ -406,6 +426,104 @@ function MR:DiagnoseCustomMatches()
             NS:Print(string.format("  #%d '|cffffd100%s|r' -> |cffaaaaaa%s|r: 0 matching items currently in bags 0..%d", idx, kw, target, maxBags))
         end
     end
+end
+
+-- 1-click staging for ONLY AH / Disenchantable BoEs to your opted-in Enchanter (or BankAlt fallback)
+function MR:StageBoEsOnly()
+    if MailFrame and MailFrame:IsShown() then
+        MR.isMailboxOpen = true
+    end
+    if not MR.isMailboxOpen then
+        NS:Print("|cffff4444Open a mailbox first before staging AH / Disenchantable BoEs.|r")
+        return 0
+    end
+    if MR.isSending then
+        NS:Print("|cffffd100Waiting for MAIL_SEND_SUCCESS before staging next batch...|r")
+        return 0
+    end
+
+    NS.Roster:ScanAll(true)
+    local eligible, isSelf = NS.Roster:GetEligibleTargetsForCategory("DisenchantBoE")
+    local catUsed = "DisenchantBoE"
+    if #eligible == 0 and not isSelf then
+        eligible, isSelf = NS.Roster:GetEligibleTargetsForCategory("BankAlt")
+        catUsed = "BankAlt"
+    end
+
+    if #eligible == 0 then
+        if isSelf then
+            NS:Print("You are currently logged into the designated AH / Disenchantable BoE recipient (self-mail blocked).")
+        else
+            NS:Print("|cffff9900No Enchanter or BankAlt assigned for BoEs.|r Open |cffffd100/he setup|r -> Step 3 and check 'Enchanter: Send all AH / Disenchantable BoEs here'.")
+        end
+        return 0
+    end
+
+    local targetRecipient = eligible[1]
+    if C.IsCurrentPlayer(targetRecipient) then
+        NS:Print("|cffff4444Blocked:|r Refused self-mail to " .. tostring(targetRecipient) .. ".")
+        return 0
+    end
+
+    if SendMailFrame and not SendMailFrame:IsShown() then
+        if MailFrameTab_OnClick and MailFrameTab2 then
+            pcall(MailFrameTab_OnClick, MailFrameTab2, 2)
+        elseif MailFrameTab2 then
+            pcall(function() MailFrameTab2:Click() end)
+        end
+    end
+
+    ClearAllStagedMail()
+
+    local maxBags = C.GetMaxBagIndex()
+    local maxAttach = ATTACHMENTS_MAX_SEND or 12
+    local staged = 0
+
+    for bag = 0, maxBags do
+        local numSlots = C.GetContainerNumSlots(bag)
+        for slot = 1, numSlots do
+            if staged >= maxAttach then break end
+            local _, _, isLocked, _, link, itemID, isBound = C.GetContainerItemDetails(bag, slot)
+            if not link then link = C.GetContainerItemLink(bag, slot) end
+            if link then
+                itemID = itemID or C.ExtractItemID(link)
+                local hardProt = MR:IsHardProtected(itemID, link, bag, slot, isLocked, isBound)
+                if not hardProt then
+                    local cat = MR:ResolveCategoryForItem(link, itemID)
+                    if cat == "DisenchantBoE" or cat == "BankAlt" then
+                        local emptySlot = FindFirstEmptyMailSlot(maxAttach)
+                        if not emptySlot then break end
+                        C.PickupContainerItem(bag, slot)
+                        ClickSendMailItemButton(emptySlot)
+                        if CursorHasItem and CursorHasItem() then
+                            ClearCursor()
+                        else
+                            staged = staged + 1
+                        end
+                    end
+                end
+            end
+        end
+        if staged >= maxAttach then break end
+    end
+
+    if staged > 0 then
+        MR.currentRecipient = targetRecipient
+        MR.stagedCount = staged
+        if SendMailNameEditBox then
+            SendMailNameEditBox:SetText(targetRecipient)
+        end
+        if SendMailSubjectEditBox then
+            SendMailSubjectEditBox:SetText("WOWEngine: AH/DE BoEs (" .. staged .. ")")
+        end
+        if SendMailFrame_CanSend then
+            pcall(SendMailFrame_CanSend)
+        end
+        NS:Print(string.format("Staged |cff00ff00%d|r AH / Disenchantable BoE(s) [%s] for |cffffd100%s|r. Click |cff00aeffSend|r.", staged, catUsed, targetRecipient))
+    else
+        NS:Print("No tradeable AH / Disenchantable BoEs found in bags 0.." .. tostring(maxBags) .. ".")
+    end
+    return staged
 end
 
 function MR:CycleNextTarget()

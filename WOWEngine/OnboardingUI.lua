@@ -8,6 +8,11 @@ OB.totalSteps = 5
 OB.frame = nil
 OB.customFrame = nil
 OB.customAltIndex = 1
+OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1
 OB.stepPanels = {}
 
 local cbCounter = 0
@@ -259,7 +264,12 @@ function OB:OpenCustomAdditionsPopup()
             local list = NS.Roster:GetSortedVerifiedList()
             if #list == 0 then return end
             OB.customAltIndex = OB.customAltIndex + 1
-            if OB.customAltIndex > #list then OB.customAltIndex = 1 end
+            if OB.customAltIndex > #list then OB.customAltIndex = 1
+OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1 end
             OB:RefreshCustomPopup()
         end)
         altBtn:SetPoint("LEFT", altLbl, "RIGHT", 10, 0)
@@ -299,7 +309,12 @@ function OB:OpenCustomAdditionsPopup()
                 NS:Print("|cffff9900Scan characters in Step 1 first.|r")
                 return
             end
-            if OB.customAltIndex > #list then OB.customAltIndex = 1 end
+            if OB.customAltIndex > #list then OB.customAltIndex = 1
+OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1 end
             local target = list[OB.customAltIndex].name
             local rawKw = cf.editBox:GetText() or ""
             local cleanKw = C.ExtractItemName(rawKw)
@@ -425,6 +440,11 @@ function OB:RefreshCustomPopup()
     if #list > 0 then
         if OB.customAltIndex < 1 or OB.customAltIndex > #list then
             OB.customAltIndex = 1
+OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1
         end
         local name = list[OB.customAltIndex].name
         local tag = C.IsCurrentPlayer(name) and " (You)" or ""
@@ -469,12 +489,246 @@ function OB:RefreshCustomPopup()
     end
 end
 
+
+-- ==========================================
+-- POPUP: SHARED PROFESSION CHARACTERS & PRIORITY (MAX 10 PER PROFESSION)
+-- ==========================================
+function OB:OpenSharedPriorityPopup(profName, catKey)
+    if not catKey then return end
+    OB.sharedProfName = profName or catKey
+    OB.sharedCatKey = catKey
+    OB.sharedPoolIndex = 1
+
+    if not OB.sharedFrame then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local sf = CreateFrame("Frame", "WOWEngineSharedPriorityFrame", UIParent, template)
+        sf:SetSize(485, 420)
+        sf:SetPoint("CENTER", UIParent, "CENTER", 55, 10)
+        sf:SetFrameStrata("DIALOG")
+        sf:SetFrameLevel(135)
+        sf:SetClampedToScreen(true)
+        sf:SetMovable(true)
+        sf:EnableMouse(true)
+        sf:RegisterForDrag("LeftButton")
+        sf:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        sf:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        ApplyBlizzardBlueBackdrop(sf, 0.98)
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineSharedPriorityFrame")
+        end
+
+        local headerBg = sf:CreateTexture(nil, "ARTWORK")
+        headerBg:SetPoint("TOPLEFT", 4, -4)
+        headerBg:SetPoint("TOPRIGHT", -4, -4)
+        headerBg:SetHeight(42)
+        headerBg:SetColorTexture(0.06, 0.16, 0.34, 0.95)
+
+        local title = sf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 14, -10)
+        sf.title = title
+
+        local subtitle = sf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+        sf.subtitle = subtitle
+
+        local closeBtn = CreateFrame("Button", nil, sf, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        closeBtn:SetScript("OnClick", function() sf:Hide() end)
+
+        local hint = sf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", 14, -52)
+        hint:SetWidth(455)
+        hint:SetJustifyH("LEFT")
+        hint:SetText("Up to |cffffd10010 characters|r per profession receive mats in priority order (#1 highest). Use Up/Dn to sort visually, or swap characters from the pool below.")
+
+        -- 10 Priority Slots (#1 .. #10)
+        sf.rows = {}
+        for i = 1, 10 do
+            local rowY = -86 - (i - 1) * 24
+
+            local rankTxt = sf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            rankTxt:SetPoint("TOPLEFT", 14, rowY - 4)
+            rankTxt:SetWidth(26)
+            rankTxt:SetJustifyH("LEFT")
+            rankTxt:SetText("#" .. i)
+
+            local nameTxt = sf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            nameTxt:SetPoint("LEFT", rankTxt, "RIGHT", 4, 0)
+            nameTxt:SetWidth(275)
+            nameTxt:SetJustifyH("LEFT")
+
+            local upBtn = CreateActionButton(sf, 36, 20, "Up", function()
+                if NS.Roster:MoveCategoryTarget(OB.sharedCatKey, i, -1) then
+                    OB:RefreshSharedPriorityPopup()
+                    OB:RefreshCurrentStep()
+                end
+            end)
+            upBtn:SetPoint("TOPRIGHT", -114, rowY)
+
+            local dnBtn = CreateActionButton(sf, 36, 20, "Dn", function()
+                if NS.Roster:MoveCategoryTarget(OB.sharedCatKey, i, 1) then
+                    OB:RefreshSharedPriorityPopup()
+                    OB:RefreshCurrentStep()
+                end
+            end)
+            dnBtn:SetPoint("LEFT", upBtn, "RIGHT", 4, 0)
+
+            local remBtn = CreateActionButton(sf, 56, 20, "Remove", function()
+                local active = NS.Roster:GetCategoryTargets(OB.sharedCatKey)
+                if active[i] then
+                    NS.Roster:RemoveTargetFromCategory(OB.sharedCatKey, active[i], true)
+                    OB:RefreshSharedPriorityPopup()
+                    OB:RefreshCurrentStep()
+                end
+            end)
+            remBtn:SetPoint("LEFT", dnBtn, "RIGHT", 4, 0)
+
+            sf.rows[i] = { rankTxt = rankTxt, nameTxt = nameTxt, upBtn = upBtn, dnBtn = dnBtn, remBtn = remBtn }
+        end
+
+        -- Divider line above Add/Swap Pool
+        local div = sf:CreateTexture(nil, "ARTWORK")
+        div:SetPoint("TOPLEFT", 14, -332)
+        div:SetPoint("TOPRIGHT", -14, -332)
+        div:SetHeight(1)
+        div:SetColorTexture(0.95, 0.78, 0.18, 0.5)
+
+        local poolLbl = sf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        poolLbl:SetPoint("TOPLEFT", 14, -340)
+        sf.poolLbl = poolLbl
+
+        local poolCycleBtn = CreateActionButton(sf, 260, 22, "Select Character to Add", function()
+            local _, pool = NS.Roster:GetSharedPoolForProfession(OB.sharedProfName, OB.sharedCatKey)
+            if #pool == 0 then return end
+            OB.sharedPoolIndex = OB.sharedPoolIndex + 1
+            if OB.sharedPoolIndex > #pool then OB.sharedPoolIndex = 1 end
+            OB:RefreshSharedPriorityPopup()
+        end)
+        poolCycleBtn:SetPoint("TOPLEFT", 14, -358)
+        sf.poolCycleBtn = poolCycleBtn
+
+        local poolAddBtn = CreateActionButton(sf, 108, 22, "+ Add to Top 10", function()
+            local active, pool = NS.Roster:GetSharedPoolForProfession(OB.sharedProfName, OB.sharedCatKey)
+            if #active >= (NS.Roster.MAX_SHARED_PER_PROF or 10) then
+                NS:Print("|cffff9900Limit reached (10/10):|r Remove a character above before adding another to " .. tostring(OB.sharedProfName) .. ".")
+                return
+            end
+            if #pool == 0 then return end
+            if OB.sharedPoolIndex > #pool then OB.sharedPoolIndex = 1 end
+            local pick = pool[OB.sharedPoolIndex]
+            if pick then
+                local ok, res = NS.Roster:AddTargetToCategory(OB.sharedCatKey, pick.name, true)
+                if ok then
+                    NS:Print("Added |cff00ff00" .. tostring(res) .. "|r to " .. tostring(OB.sharedProfName) .. " priority list.")
+                    OB:RefreshSharedPriorityPopup()
+                    OB:RefreshCurrentStep()
+                end
+            end
+        end)
+        poolAddBtn:SetPoint("LEFT", poolCycleBtn, "RIGHT", 6, 0)
+        sf.poolAddBtn = poolAddBtn
+
+        -- Bottom Utility Row: Auto-Sort + Done
+        local sortSkillBtn = CreateActionButton(sf, 110, 22, "Sort by Skill", function()
+            NS.Roster:SortCategoryTargets(OB.sharedCatKey, OB.sharedProfName, "skill")
+            OB:RefreshSharedPriorityPopup()
+            OB:RefreshCurrentStep()
+        end)
+        sortSkillBtn:SetPoint("BOTTOMLEFT", 14, 12)
+
+        local sortLvlBtn = CreateActionButton(sf, 110, 22, "Sort by Level", function()
+            NS.Roster:SortCategoryTargets(OB.sharedCatKey, OB.sharedProfName, "level")
+            OB:RefreshSharedPriorityPopup()
+            OB:RefreshCurrentStep()
+        end)
+        sortLvlBtn:SetPoint("LEFT", sortSkillBtn, "RIGHT", 6, 0)
+
+        local doneBtn = CreateActionButton(sf, 84, 22, "Done", function()
+            sf:Hide()
+        end)
+        doneBtn:SetPoint("BOTTOMRIGHT", -14, 12)
+
+        OB.sharedFrame = sf
+    end
+
+    OB:RefreshSharedPriorityPopup()
+    OB.sharedFrame:Show()
+    OB.sharedFrame:Raise()
+end
+
+function OB:RefreshSharedPriorityPopup()
+    local sf = OB.sharedFrame
+    if not sf or not OB.sharedCatKey then return end
+
+    local active, pool = NS.Roster:GetSharedPoolForProfession(OB.sharedProfName, OB.sharedCatKey)
+    local roster = NS:GetActiveRoster()
+    local maxSlots = NS.Roster.MAX_SHARED_PER_PROF or 10
+
+    sf.title:SetText(string.format("|cff00aeffShared %s|r |cffffd100Priority (%d/%d)|r",
+        tostring(OB.sharedProfName), #active, maxSlots))
+    sf.subtitle:SetText(string.format("Category: %s  |  Active: %d/%d  |  Waiting in Pool: %d",
+        tostring(OB.sharedCatKey), #active, maxSlots, #pool))
+
+    for i = 1, 10 do
+        local row = sf.rows[i]
+        local charName = active[i]
+        if charName then
+            local info = roster[charName] or {}
+            local lv = tonumber(info.level) or 0
+            local sk = (info.professions and OB.sharedProfName and tonumber(info.professions[OB.sharedProfName])) or nil
+            local skStr = sk and (" | Skill " .. sk) or ""
+            local selfTag = C.IsCurrentPlayer(charName) and " |cff00aeff(You)|r" or ""
+            row.rankTxt:SetText("|cffffd100#" .. i .. "|r")
+            row.nameTxt:SetText(string.format("|cff00ff00%s|r%s  |cffaaaaaa[Lv%d%s]|r", charName, selfTag, lv, skStr))
+            row.rankTxt:Show()
+            row.nameTxt:Show()
+            row.upBtn:Show()
+            row.dnBtn:Show()
+            row.remBtn:Show()
+            if i == 1 then row.upBtn:Disable() else row.upBtn:Enable() end
+            if i == #active then row.dnBtn:Disable() else row.dnBtn:Enable() end
+        else
+            row.rankTxt:SetText("|cff666666#" .. i .. "|r")
+            row.nameTxt:SetText("|cff666666(Open Priority Slot)|r")
+            row.rankTxt:Show()
+            row.nameTxt:Show()
+            row.upBtn:Hide()
+            row.dnBtn:Hide()
+            row.remBtn:Hide()
+        end
+    end
+
+    if #pool > 0 then
+        if OB.sharedPoolIndex < 1 or OB.sharedPoolIndex > #pool then
+            OB.sharedPoolIndex = 1
+        end
+        local pick = pool[OB.sharedPoolIndex]
+        sf.poolLbl:SetText(string.format("|cffffd100Additional Shared Characters (%d available to swap into Top 10):|r", #pool))
+        sf.poolCycleBtn:SetText(string.format("[%d/%d] %s (Lv%d)", OB.sharedPoolIndex, #pool, pick.name, tonumber(pick.level) or 0))
+        sf.poolCycleBtn:Enable()
+        if #active >= maxSlots then
+            sf.poolAddBtn:SetText("Full (10/10)")
+            sf.poolAddBtn:Disable()
+        else
+            sf.poolAddBtn:SetText("+ Add to Top 10")
+            sf.poolAddBtn:Enable()
+        end
+    else
+        sf.poolLbl:SetText("|cff888888All detected characters for this profession are shown above.|r")
+        sf.poolCycleBtn:SetText("|cff888888No extra characters in pool|r")
+        sf.poolCycleBtn:Disable()
+        sf.poolAddBtn:SetText("+ Add to Top 10")
+        sf.poolAddBtn:Disable()
+    end
+end
+
 function OB:BuildFrame()
     if OB.frame then return OB.frame end
 
     local template = BackdropTemplateMixin and "BackdropTemplate" or nil
     local f = CreateFrame("Frame", "WOWEngineOnboardingFrame", UIParent, template)
-    f:SetSize(535, 425)
+    f:SetSize(535, 530)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 30)
     f:SetFrameStrata("DIALOG")
     f:SetFrameLevel(100)
@@ -588,7 +842,7 @@ function OB:BuildFrame()
     p2Desc:SetPoint("TOPLEFT", p2Title, "BOTTOMLEFT", 0, -6)
     p2Desc:SetWidth(475)
     p2Desc:SetJustifyH("LEFT")
-    p2Desc:SetText("All IllusoryBias companion tools are built directly into WOWEngine, HordeEngine, and AllianceEngine. Register your bank alt and preview your derivative naming below.")
+    p2Desc:SetText("WOWEngine v1.6.0 is now a single unified addon for both Horde & Alliance with integrated IllusoryBias tools. Register your bank alt and preview your derivative naming below.")
 
     local p2BankBtn = CreateActionButton(p2, 235, 26, "Set Current Character as BankAlt", function()
         NS.Roster:ScanCurrentPlayer()
@@ -626,60 +880,248 @@ function OB:BuildFrame()
     p2.preview = p2Preview
 
     -- ==========================================
-    -- STEP 3: SIMPLE 1-CLICK MAIL ROUTES + OPTIONAL "+Alt" & "Custom Additions"
+    -- STEP 3: CHARACTER-FIRST DYNAMIC PROFESSION & MAIL SETUP
     -- ==========================================
     local p3 = CreateFrame("Frame", nil, content)
     p3:SetAllPoints()
     OB.stepPanels[3] = p3
 
     local p3Title = p3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    p3Title:SetPoint("TOPLEFT", 14, -12)
-    p3Title:SetText("|cffffd100Step 3: Assign Verified Mail Recipients (Simple & Fast)|r")
+    p3Title:SetPoint("TOPLEFT", 14, -10)
+    p3Title:SetText("|cffffd100Step 3: Character Profession Profile & Dynamic Mail Routing|r")
 
-    local p3Desc = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p3Desc:SetPoint("TOPLEFT", p3Title, "BOTTOMLEFT", 0, -4)
-    p3Desc:SetWidth(475)
-    p3Desc:SetJustifyH("LEFT")
-    p3Desc:SetText("Click any row to pick its alt (assigning the same alt to Cloth + Enchanting bundles them together). Optional: click +Alt to add a 2nd alt, or Custom Additions below.")
-
-    p3.rows = {}
-    for idx, cat in ipairs(NS.CATEGORIES) do
-        local yOff = -54 - (idx - 1) * 30
-        local catKey = cat.key
-
-        local lbl = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lbl:SetPoint("TOPLEFT", 14, yOff - 4)
-        lbl:SetWidth(138)
-        lbl:SetJustifyH("LEFT")
-        lbl:SetText(cat.label .. ":")
-
-        local valBtn = CreateActionButton(p3, 224, 22, "Unassigned (Click to Select)", function()
-            OB:CyclePrimaryForCategory(catKey)
-        end)
-        valBtn:SetPoint("LEFT", lbl, "RIGHT", 6, 0)
-
-        local addAltBtn = CreateActionButton(p3, 46, 22, "+Alt", function()
-            OB:AddExtraAltToCategory(catKey)
-        end)
-        addAltBtn:SetPoint("LEFT", valBtn, "RIGHT", 4, 0)
-
-        local clrBtn = CreateActionButton(p3, 48, 22, "Clear", function()
-            NS.Roster:ClearCategory(catKey)
+    -- Character Selector Bar
+    local cPrevBtn = CreateActionButton(p3, 58, 22, "< Prev", function()
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list > 0 then
+            OB.step3CharIndex = OB.step3CharIndex - 1
+            if OB.step3CharIndex < 1 then OB.step3CharIndex = #list end
             OB:RefreshCurrentStep()
-        end)
-        clrBtn:SetPoint("LEFT", addAltBtn, "RIGHT", 4, 0)
-
-        p3.rows[catKey] = valBtn
-    end
-
-    local p3AutoBtn = CreateActionButton(p3, 190, 22, "Auto-Map from Professions", function()
-        NS.Roster:AutoMapVerifiedRoutes(true)
-        OB:RefreshCurrentStep()
-        NS:Print("Auto-mapped routes from verified character professions.")
+        end
     end)
-    p3AutoBtn:SetPoint("BOTTOMLEFT", 14, 10)
+    cPrevBtn:SetPoint("TOPLEFT", 14, -34)
 
-    local p3CustomBtn = CreateActionButton(p3, 185, 22, "Custom Additions (0)...", function()
+    local cNextBtn = CreateActionButton(p3, 58, 22, "Next >", function()
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list > 0 then
+            OB.step3CharIndex = OB.step3CharIndex + 1
+            if OB.step3CharIndex > #list then OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1 end
+            OB:RefreshCurrentStep()
+        end
+    end)
+    cNextBtn:SetPoint("TOPRIGHT", -14, -34)
+
+    local charBanner = p3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    charBanner:SetPoint("LEFT", cPrevBtn, "RIGHT", 6, 0)
+    charBanner:SetPoint("RIGHT", cNextBtn, "LEFT", -6, 0)
+    charBanner:SetJustifyH("CENTER")
+    p3.charBanner = charBanner
+
+    -- Dynamic Phase Status Line
+    local phaseTxt = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    phaseTxt:SetPoint("TOPLEFT", 14, -62)
+    phaseTxt:SetWidth(478)
+    phaseTxt:SetJustifyH("LEFT")
+    p3.phaseTxt = phaseTxt
+
+    -- Primary Profession 1 Row
+    local p1Lbl = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p1Lbl:SetPoint("TOPLEFT", 14, -88)
+    p1Lbl:SetWidth(102)
+    p1Lbl:SetJustifyH("LEFT")
+    p1Lbl:SetText("Primary Prof 1:")
+
+    local p1Btn = CreateActionButton(p3, 215, 22, "No Profession (Click to Plan)", function()
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list == 0 then return end
+        local info = list[OB.step3CharIndex]
+        if not info then return end
+        local prof = NS.Roster:GetCharacterProfessionProfile(info.name)
+        if prof.p1 and prof.p1.learned then
+            NS:Print(info.name .. " already learned |cff00ff00" .. prof.p1.name .. "|r (auto-detected).")
+        else
+            NS.Roster:CyclePlannedProfession(info.name, 1)
+            OB:RefreshCurrentStep()
+        end
+    end)
+    p1Btn:SetPoint("LEFT", p1Lbl, "RIGHT", 4, 0)
+    p3.p1Btn = p1Btn
+
+    local p1ShareBtn = CreateActionButton(p3, 156, 22, "Shared / Set Priority", function()
+        if p3.p1SharedProf and p3.p1SharedCat then
+            OB:OpenSharedPriorityPopup(p3.p1SharedProf, p3.p1SharedCat)
+        end
+    end)
+    p1ShareBtn:SetPoint("LEFT", p1Btn, "RIGHT", 8, 0)
+    p1ShareBtn:Hide()
+    p3.p1ShareBtn = p1ShareBtn
+
+    local p1Share = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p1Share:SetPoint("LEFT", p1Btn, "RIGHT", 8, 0)
+    p1Share:SetWidth(156)
+    p1Share:SetJustifyH("LEFT")
+    p3.p1Share = p1Share
+
+    -- Primary Profession 2 Row
+    local p2Lbl = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p2Lbl:SetPoint("TOPLEFT", 14, -118)
+    p2Lbl:SetWidth(102)
+    p2Lbl:SetJustifyH("LEFT")
+    p2Lbl:SetText("Primary Prof 2:")
+
+    local p2Btn = CreateActionButton(p3, 215, 22, "No Profession (Click to Plan)", function()
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list == 0 then return end
+        local info = list[OB.step3CharIndex]
+        if not info then return end
+        local prof = NS.Roster:GetCharacterProfessionProfile(info.name)
+        if prof.p2 and prof.p2.learned then
+            NS:Print(info.name .. " already learned |cff00ff00" .. prof.p2.name .. "|r (auto-detected).")
+        else
+            NS.Roster:CyclePlannedProfession(info.name, 2)
+            OB:RefreshCurrentStep()
+        end
+    end)
+    p2Btn:SetPoint("LEFT", p2Lbl, "RIGHT", 4, 0)
+    p3.p2Btn = p2Btn
+
+    local p2ShareBtn = CreateActionButton(p3, 156, 22, "Shared / Set Priority", function()
+        if p3.p2SharedProf and p3.p2SharedCat then
+            OB:OpenSharedPriorityPopup(p3.p2SharedProf, p3.p2SharedCat)
+        end
+    end)
+    p2ShareBtn:SetPoint("LEFT", p2Btn, "RIGHT", 8, 0)
+    p2ShareBtn:Hide()
+    p3.p2ShareBtn = p2ShareBtn
+
+    local p2Share = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p2Share:SetPoint("LEFT", p2Btn, "RIGHT", 8, 0)
+    p2Share:SetWidth(156)
+    p2Share:SetJustifyH("LEFT")
+    p3.p2Share = p2Share
+
+    -- Sub-Professions Display
+    local subTxt = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    subTxt:SetPoint("TOPLEFT", 14, -148)
+    subTxt:SetWidth(478)
+    subTxt:SetJustifyH("LEFT")
+    p3.subTxt = subTxt
+
+    -- Bank / AH Vault Toggle for Selected Character
+    local cbBank = CreateCheckbox(p3, "Assign this character as a Bank / BoE Vault recipient",
+        function()
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            return info and NS.Roster:HasTargetInCategory("BankAlt", info.name) or false
+        end,
+        function(v)
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            if not info then return end
+            if v then
+                NS.Roster:AddTargetToCategory("BankAlt", info.name, true)
+            else
+                NS.Roster:RemoveTargetFromCategory("BankAlt", info.name, true)
+            end
+        end)
+    cbBank:SetPoint("TOPLEFT", 14, -166)
+    p3.cbBank = cbBank
+
+    -- Enchanter Option: Send all Auction House / Disenchantable BoEs to this character
+    local cbDisenchantBoE = CreateCheckbox(p3, "|cffffd100Enchanter:|r Send all AH / Disenchantable BoEs here",
+        function()
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            return info and NS.Roster:HasTargetInCategory("DisenchantBoE", info.name) or false
+        end,
+        function(v)
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            if not info then return end
+            if v then
+                NS.Roster:AddTargetToCategory("DisenchantBoE", info.name, true)
+                NS:Print("All AH / Disenchantable BoEs will now route to |cff00ff00" .. info.name .. "|r.")
+            else
+                NS.Roster:RemoveTargetFromCategory("DisenchantBoE", info.name, true)
+                NS:Print("Removed |cffff9900" .. info.name .. "|r from AH / Disenchantable BoE routing.")
+            end
+        end)
+    cbDisenchantBoE:SetPoint("TOPLEFT", 14, -188)
+    p3.cbDisenchantBoE = cbDisenchantBoE
+
+    -- Exclude / Include Character from Wave Leveling Sync (keeps them available for Mail)
+    local cbExcludeWave = CreateCheckbox(p3, "Exclude this character from Wave Leveling Sync (keep for Mail only)",
+        function()
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            if not info then return false end
+            return not NS.Roster:IsIncludedInWave(info)
+        end,
+        function(excluded)
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            if not info then return end
+            NS.Roster:SetWaveExcluded(info.name, excluded)
+            if NS.WaveTracker then
+                if NS.WaveTracker.RefreshUI then NS.WaveTracker:RefreshUI() end
+                if NS.WaveTracker.RefreshQuestieDock then NS.WaveTracker:RefreshQuestieDock() end
+            end
+        end)
+    cbExcludeWave:SetPoint("TOPLEFT", 14, -210)
+    p3.cbExcludeWave = cbExcludeWave
+
+    -- Exclude Character from Mail Routing completely
+    local cbExcludeMail = CreateCheckbox(p3, "Exclude this character from Mail Routing (never send mail here)",
+        function()
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            return info and NS.Roster:IsExcludedFromMail(info) or false
+        end,
+        function(excluded)
+            local list = NS.Roster:GetSortedVerifiedList()
+            local info = list[OB.step3CharIndex]
+            if not info then return end
+            NS.Roster:SetMailExcluded(info.name, excluded)
+            if excluded then
+                NS:Print("Excluded |cffff9900" .. info.name .. "|r from all Mail Routing.")
+            else
+                NS:Print("Re-enabled |cff00ff00" .. info.name .. "|r for Mail Routing.")
+            end
+        end)
+    cbExcludeMail:SetPoint("TOPLEFT", 14, -232)
+    p3.cbExcludeMail = cbExcludeMail
+
+    -- Mastercraft Guidance & Shared Alts Summary Box
+    local mcTxt = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    mcTxt:SetPoint("TOPLEFT", 14, -258)
+    mcTxt:SetWidth(478)
+    mcTxt:SetJustifyH("LEFT")
+    p3.mcTxt = mcTxt
+
+    -- Bottom Action Buttons
+    local p3McBtn = CreateActionButton(p3, 175, 22, "Mastercraft: Leveling Use", function()
+        if WOWEngineDB.mastercraftPriority == "leveling" then
+            WOWEngineDB.mastercraftPriority = "profit"
+        else
+            WOWEngineDB.mastercraftPriority = "leveling"
+        end
+        OB:RefreshCurrentStep()
+    end)
+    p3McBtn:SetPoint("BOTTOMLEFT", 14, 10)
+    p3.mcBtn = p3McBtn
+
+    local p3TrainBtn = CreateActionButton(p3, 105, 22, "Trainer Coords", function()
+        if NS.WaveTracker and NS.WaveTracker.PrintTrainerLookup then
+            NS.WaveTracker:PrintTrainerLookup("")
+        end
+    end)
+    p3TrainBtn:SetPoint("LEFT", p3McBtn, "RIGHT", 6, 0)
+
+    local p3CustomBtn = CreateActionButton(p3, 175, 22, "Custom Additions (0)...", function()
         OB:OpenCustomAdditionsPopup()
     end)
     p3CustomBtn:SetPoint("BOTTOMRIGHT", -14, 10)
@@ -697,18 +1139,18 @@ function OB:BuildFrame()
     p4Title:SetText("|cffffd100Step 4: Addon Bridges & Blizzard TOS Safeguards|r")
 
     local p4Status = p4:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p4Status:SetPoint("TOPLEFT", p4Title, "BOTTOMLEFT", 0, -8)
-    p4Status:SetWidth(475)
+    p4Status:SetPoint("TOPLEFT", p4Title, "BOTTOMLEFT", 0, -6)
+    p4Status:SetWidth(480)
     p4Status:SetJustifyH("LEFT")
     p4.statusText = p4Status
 
-    local cbAlto = CreateCheckbox(p4, "Sync alts, professions & gold from Altoholic / DataStore",
+    local cbAlto = CreateCheckbox(p4, "Sync alts, professions, bags & gold from Altoholic / DataStore",
         function() return WOWEngineDB.syncAltoholic end,
         function(v)
             WOWEngineDB.syncAltoholic = v
             if v then NS.Roster:ScanAll(true) end
         end)
-    cbAlto:SetPoint("TOPLEFT", 14, -90)
+    cbAlto:SetPoint("TOPLEFT", 14, -206)
     p4.cbAlto = cbAlto
 
     local cbMC = CreateCheckbox(p4, "Protect reagents queued in Mastercraft from being mailed",
@@ -897,8 +1339,8 @@ function OB:RefreshCurrentStep()
         local p2 = OB.stepPanels[2]
         local bankList = NS.Roster:GetCategoryTargets("BankAlt")
         local bankStr = (#bankList > 0) and table.concat(bankList, ", ") or "|cffff9900Not set yet|r"
-        local activeMod = (faction == "Horde" and NS.Modules["HordeEngine"]) and "HordeEngine (Active)"
-            or ((faction == "Alliance" and NS.Modules["AllianceEngine"]) and "AllianceEngine (Active)" or "Core WOWEngine")
+        local fp = NS:GetFactionProfile()
+        local activeMod = fp.suiteName .. " (" .. fp.plan .. ")"
         p2.info:SetText(string.format(
             "Registered BankAlt(s): |cff00ff00%s|r\nFaction Module: |cff00aeff%s|r\nBrand Handle: |cffffd100%s|r (Integrated across Core + Faction Modules)",
             bankStr, activeMod, WOWEngineDB.brandHandle or "Illusorybias"
@@ -906,35 +1348,129 @@ function OB:RefreshCurrentStep()
 
     elseif OB.currentStep == 3 then
         local p3 = OB.stepPanels[3]
-        for _, cat in ipairs(NS.CATEGORIES) do
-            local targets = NS.Roster:GetCategoryTargets(cat.key)
-            local btn = p3.rows[cat.key]
-            if btn then
-                if #targets == 1 then
-                    local name = targets[1]
-                    if C.IsCurrentPlayer(name) then
-                        btn:SetText("|cff00aeff" .. name .. " (You)|r")
-                    else
-                        btn:SetText("|cff00ff00" .. name .. "|r")
-                    end
-                elseif #targets > 1 then
-                    btn:SetText(string.format("|cff00ff00%s|r |cffffd100(+%d more)|r", targets[1], #targets - 1))
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list == 0 then
+            p3.charBanner:SetText("|cffff9900No verified characters — run Step 1 Scan|r")
+            p3.phaseTxt:SetText("Click Step 1 -> Scan Verified Characters first.")
+            p3.p1Btn:SetText("Unscanned")
+            p3.p2Btn:SetText("Unscanned")
+            p3.p1Share:SetText("")
+            p3.p2Share:SetText("")
+            p3.p1ShareBtn:Hide()
+            p3.p2ShareBtn:Hide()
+            p3.subTxt:SetText("")
+            p3.mcTxt:SetText("")
+        else
+            if OB.step3CharIndex < 1 or OB.step3CharIndex > #list then
+                OB.step3CharIndex = 1
+OB.sharedFrame = nil
+OB.sharedProfName = nil
+OB.sharedCatKey = nil
+OB.sharedPoolIndex = 1
+            end
+            local info = list[OB.step3CharIndex]
+            local prof = NS.Roster:GetCharacterProfessionProfile(info.name)
+            local selfTag = C.IsCurrentPlayer(info.name) and " |cff00aeff(You)|r" or ""
+            p3.charBanner:SetText(string.format("[%d/%d] |cff00ff00%s|r%s (Lv%d %s)",
+                OB.step3CharIndex, #list, info.name, selfTag, prof.level, prof.class))
+
+            if prof.phase == 1 then
+                p3.phaseTxt:SetText("|cffff9900Phase 1 (New / Unlearned):|r No professions detected yet. Click Primary Prof 1 or 2 to pick what you plan to learn.")
+            elseif prof.phase == 2 then
+                p3.phaseTxt:SetText("|cff00ff00Phase 2 (Learned & Auto-Mapped):|r Professions detected and mapped to mail routing automatically.")
+            else
+                p3.phaseTxt:SetText("|cff00aeffPhase 3 (Mastercraft Guided):|r Learned professions synced with Mastercraft for leveling use & profitability.")
+            end
+
+            local function applyProfSlot(slotData, mainBtn, shareBtn, shareLbl, slotNum)
+                if not slotData then
+                    mainBtn:SetText("|cffaaaaaaNone Detected (Click to Plan)|r")
+                    shareBtn:Hide()
+                    shareLbl:SetText("")
+                    shareLbl:Show()
+                    if slotNum == 1 then p3.p1SharedProf, p3.p1SharedCat = nil, nil else p3.p2SharedProf, p3.p2SharedCat = nil, nil end
+                    return
+                end
+
+                if slotData.learned then
+                    mainBtn:SetText(string.format("|cff00ff00%s|r |cffffd100(%d)|r", slotData.name, slotData.rank))
                 else
-                    btn:SetText("|cffaaaaaaUnassigned (Click to Select)|r")
+                    mainBtn:SetText(string.format("|cffff9900Planned: %s|r", slotData.name))
+                end
+
+                local cats = NS.Roster:GetCategoriesForProfession(slotData.name)
+                local primaryCat = cats[1]
+                local active, pool = {}, {}
+                if primaryCat then
+                    active, pool = NS.Roster:GetSharedPoolForProfession(slotData.name, primaryCat)
+                end
+                local totalShared = #active + #pool
+
+                if slotNum == 1 then
+                    p3.p1SharedProf, p3.p1SharedCat = slotData.name, primaryCat
+                else
+                    p3.p2SharedProf, p3.p2SharedCat = slotData.name, primaryCat
+                end
+
+                if primaryCat and totalShared > 1 then
+                    -- Shared profession: show ONLY the button to view shared characters & set priority
+                    shareLbl:Hide()
+                    shareBtn:SetText(string.format("Shared (%d) - Priority", totalShared))
+                    shareBtn:Show()
+                else
+                    shareBtn:Hide()
+                    shareLbl:SetText("|cff888888Primary owner|r")
+                    shareLbl:Show()
                 end
             end
+
+            applyProfSlot(prof.p1, p3.p1Btn, p3.p1ShareBtn, p3.p1Share, 1)
+            applyProfSlot(prof.p2, p3.p2Btn, p3.p2ShareBtn, p3.p2Share, 2)
+
+            local subParts = {}
+            for _, sName in ipairs({ "Cooking", "Fishing", "First Aid" }) do
+                local r = prof.subs and prof.subs[sName]
+                if r then
+                    table.insert(subParts, "|cff00ff00" .. sName .. " (" .. tostring(r) .. ")|r")
+                else
+                    table.insert(subParts, "|cff888888" .. sName .. " (Not Learned)|r")
+                end
+            end
+            p3.subTxt:SetText("Sub-Professions: " .. table.concat(subParts, "  |  "))
+            p3.cbBank:Refresh()
+            p3.cbDisenchantBoE:Refresh()
+            p3.cbExcludeWave:Refresh()
+            p3.cbExcludeMail:Refresh()
+
+            local mcAvail = C.IsMastercraftAvailable()
+            local mcMode = (WOWEngineDB.mastercraftPriority == "profit") and "Profitability (AH Value)" or "Leveling Use (Skill-Up)"
+            p3.mcBtn:SetText("Mastercraft: " .. ((WOWEngineDB.mastercraftPriority == "profit") and "Profitability" or "Leveling Use"))
+            p3.mcTxt:SetText(string.format(
+                "|cff00aeffMastercraft Bridge:|r %s  |  Focus: |cffffd100%s|r\nTip: Once learned, mats route automatically to this character. Use Custom Additions for extra items (e.g. Dyes, Potions).",
+                mcAvail and "|cff00ff00Connected|r" or "|cffaaaaaaInstall Mastercraft for 1-300 profit guidance|r",
+                mcMode
+            ))
         end
+
         local customCount = #NS:GetCustomRules()
         p3.customBtn:SetText(string.format("Custom Additions (%d)...", customCount))
 
     elseif OB.currentStep == 4 then
         local p4 = OB.stepPanels[4]
-        local alto = C.IsAltoholicAvailable() and "|cff00ff00Connected|r" or "|cffaaaaaaNot Loaded|r"
-        local mc = C.IsMastercraftAvailable() and "|cff00ff00Connected|r" or "|cffaaaaaaNot Loaded|r"
-        local auc = C.IsAuctionatorAvailable() and "|cff00ff00Connected|r" or "|cffaaaaaaNot Loaded|r"
+        local hasAlto, hasMC, hasQst, hasAuc = NS:GetCompanionAddonStatus()
+        local alto = hasAlto and "|cff00ff00Connected|r" or "|cffff5555Missing|r"
+        local mc = hasMC and "|cff00ff00Connected|r" or "|cffff5555Missing|r"
+        local qst = hasQst and "|cff00ff00Connected|r" or "|cffff5555Missing|r"
+        local auc = hasAuc and "|cff00ff00Connected|r" or "|cffff5555Missing|r"
         p4.statusText:SetText(string.format(
-            "Altoholic / DataStore: %s   |   Mastercraft: %s   |   Auctionator: %s\n\nSelf-mailing is permanently blocked. All mail staging requires 1 click per batch (Blizzard TOS compliant).",
-            alto, mc, auc
+            "|cffffd100Requires Altoholic (+ DataStore), Mastercraft, Questie & Auctionator:|r\n" ..
+            "Altoholic: %s  |  Mastercraft: %s  |  Questie: %s  |  Auctionator: %s\n\n" ..
+            "|cffff9900What will not work well without them:|r\n" ..
+            "- |cffffd100Without Altoholic:|r Offline alt bag upgrade routing, played-time priority, offline gold ledger & automatic roster/profession sync require logging into every alt manually.\n" ..
+            "- |cffffd100Without Mastercraft:|r Phase 3 leveling/profitability guidance & queued crafting reagent mail protection are disabled.\n" ..
+            "- |cffffd100Without Questie:|r Docked Wave Heading on the Questie Quest List falls back to Blizzard's default tracker or standalone HUD.\n" ..
+            "- |cffffd100Without Auctionator:|r Auction hold protection (preventing AH-flagged items from being mailed) & live AH price/profitability checks are disabled.",
+            alto, mc, qst, auc
         ))
         p4.cbAlto:Refresh()
         p4.cbMC:Refresh()
@@ -975,6 +1511,14 @@ function OB:Show(stepNum)
         OB.currentStep = stepNum
     end
     NS.Roster:ScanAll(true)
+    -- Default Step 3 character selector to the currently logged-in character
+    local list = NS.Roster:GetSortedVerifiedList()
+    for i, info in ipairs(list) do
+        if C.IsCurrentPlayer(info.name) then
+            OB.step3CharIndex = i
+            break
+        end
+    end
     OB:RefreshCurrentStep()
     f:Show()
     f:Raise()

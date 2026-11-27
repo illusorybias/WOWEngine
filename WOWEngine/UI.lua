@@ -34,6 +34,10 @@ local function PrintHelp()
     NS:Print("|cffffd100/hordebank|r - Display cross-character gold ledger")
     NS:Print("|cffffd100/he minimap|r - Toggle minimap button visibility")
     NS:Print("|cffffd100/he diag|r - Print live client, Altoholic & Mastercraft diagnostic check")
+    NS:Print("|cffffd100/he wave|r (or |cffffd100/he questie|r) - Open Questie Checklist & Wave Gate Sync")
+    NS:Print("|cffffd100/he trainer [prof|all]|r - Show faction profession trainer coordinates")
+    NS:Print("|cffffd100/he dock|r - Toggle or re-snap WOWEngine heading onto Questie quest list")
+    NS:Print("|cffffd100/he snooze [mins]|r - Snooze Wave Gate alert on this character")
     NS:Print("|cffffd100/he bugreport|r - Open copy-pasteable Error Report for GitHub Triage Agent")
 end
 
@@ -51,6 +55,8 @@ SlashCmdList["WOWENGINESHIP"] = function(msg)
             NS.BankSorter:RunSort("bags")
         elseif lower == "next" then
             NS.MailRouter:CycleNextTarget()
+        elseif lower == "boe" or lower == "boes" or lower == "de" then
+            NS.MailRouter:StageBoEsOnly()
         elseif cmd ~= "" then
             NS.MailRouter:StageNextBatch(cmd)
         else
@@ -159,6 +165,18 @@ SlashCmdList["WOWENGINEHELP"] = function(msg)
                 WOWEngineDB.multiAltMode = "roundrobin"
             end
             NS:Print("Multi-Alt Distribution Mode set to: |cffffd100" .. WOWEngineDB.multiAltMode .. "|r")
+        elseif cmd == "talents" or cmd == "spec" then
+            if NS.TalentAdvisor and NS.TalentAdvisor.PrintNextPick then NS.TalentAdvisor:PrintNextPick() end
+        elseif cmd == "stats" or cmd == "caps" or cmd == "statcaps" then
+            if NS.StatCapsUI and NS.StatCapsUI.Toggle then NS.StatCapsUI:Toggle() end
+        elseif cmd == "wavewizard" or cmd == "wizard" then
+            if NS.WaveTracker and NS.WaveTracker.OpenWaveWizard then NS.WaveTracker:OpenWaveWizard() end
+        elseif cmd == "options" or cmd == "config" or cmd == "settings" then
+            if NS.SettingsPanel and NS.SettingsPanel.Open then NS.SettingsPanel:Open() end
+        elseif cmd == "bagstatus" or cmd == "bagpriority" then
+            if NS.BagRouter and NS.BagRouter.PrintBagStatus then NS.BagRouter:PrintBagStatus() end
+        elseif cmd == "boe" or cmd == "boes" then
+            NS.MailRouter:StageBoEsOnly()
         elseif cmd == "ship" then
             NS.MailRouter:StageNextBatch(C.Trim(rest))
         elseif cmd == "bank" then
@@ -180,6 +198,87 @@ SlashCmdList["WOWENGINEHELP"] = function(msg)
                     _G.WOWEngineMinimapButton:Show()
                     NS:Print("Minimap button shown.")
                 end
+            end
+        elseif cmd == "wave" or cmd == "questie" or cmd == "checklist" then
+            if NS.WaveTracker and NS.WaveTracker.ShowUI then
+                NS.WaveTracker:ShowUI()
+            end
+        elseif cmd == "trainer" or cmd == "trainers" then
+            if NS.WaveTracker and NS.WaveTracker.PrintTrainerLookup then
+                NS.WaveTracker:PrintTrainerLookup(rest)
+            end
+        elseif cmd == "dock" then
+            local ws = NS:GetWaveState()
+            ws.dockQuestieHeader = not ws.dockQuestieHeader
+            if ws.dockQuestieHeader then
+                NS.WaveTracker:InitQuestieDock()
+                NS:Print("WOWEngine heading docked onto Questie quest list.")
+            else
+                if NS.WaveTracker.questieDock then NS.WaveTracker.questieDock:Hide() end
+                NS:Print("WOWEngine Questie heading hidden. Type |cffffd100/he dock|r to restore.")
+            end
+        elseif cmd == "exclude" then
+            local target = C.Trim(rest or "")
+            if target ~= "" then
+                local okEx, exact = NS.Roster:SetWaveExcluded(target, true)
+                if okEx then
+                    NS:Print("Excluded |cffff9900" .. exact .. "|r from Wave Leveling Sync (kept for Mail).")
+                    if NS.WaveTracker then NS.WaveTracker:RefreshUI(); NS.WaveTracker:RefreshQuestieDock() end
+                else
+                    NS:Print("Character '" .. target .. "' not found in verified roster.")
+                end
+            else
+                if NS.WaveTracker and NS.WaveTracker.OpenManageAltsPopup then NS.WaveTracker:OpenManageAltsPopup() end
+            end
+        elseif cmd == "include" then
+            local target = C.Trim(rest or "")
+            if target ~= "" then
+                local okIn, exact = NS.Roster:SetWaveExcluded(target, false)
+                if okIn then
+                    NS:Print("Included |cff00ff00" .. exact .. "|r in Wave Leveling Sync.")
+                    if NS.WaveTracker then NS.WaveTracker:RefreshUI(); NS.WaveTracker:RefreshQuestieDock() end
+                else
+                    NS:Print("Character '" .. target .. "' not found in verified roster.")
+                end
+            else
+                if NS.WaveTracker and NS.WaveTracker.OpenManageAltsPopup then NS.WaveTracker:OpenManageAltsPopup() end
+            end
+        elseif cmd == "excludemail" then
+            local target = C.Trim(rest or "")
+            if target ~= "" then
+                local okEx, exact = NS.Roster:SetMailExcluded(target, true)
+                if okEx then
+                    NS:Print("Excluded |cffff9900" .. exact .. "|r from Mail Routing.")
+                else
+                    NS:Print("Character '" .. target .. "' not found in verified roster.")
+                end
+            else
+                NS:Print("Usage: |cffffd100/he excludemail CharacterName|r")
+            end
+        elseif cmd == "includemail" then
+            local target = C.Trim(rest or "")
+            if target ~= "" then
+                local okIn, exact = NS.Roster:SetMailExcluded(target, false)
+                if okIn then
+                    NS:Print("Re-enabled |cff00ff00" .. exact .. "|r for Mail Routing.")
+                else
+                    NS:Print("Character '" .. target .. "' not found in verified roster.")
+                end
+            else
+                NS:Print("Usage: |cffffd100/he includemail CharacterName|r")
+            end
+        elseif cmd == "snooze" then
+            if NS.WaveTracker and NS.WaveTracker.Snooze then
+                NS.WaveTracker:Snooze(tonumber(rest) or 30)
+            end
+        elseif cmd == "setbugurl" then
+            local newUrl = C.Trim(rest or "")
+            if newUrl ~= "" then
+                WOWEngineDB.bugReportUrl = newUrl
+                NS:Print("Bug submission URL updated to: |cff00ff00" .. newUrl .. "|r")
+            else
+                NS:Print("Current Bug URL: |cffffd100" .. (NS.BugReporter and NS.BugReporter:GetSubmissionURL() or "?") .. "|r")
+                NS:Print("Usage: |cffffd100/he setbugurl https://github.com/YOUR_USER/WOWEngine/issues/new?template=bug_report.yml|r")
             end
         elseif cmd == "bugreport" or cmd == "bug" or cmd == "report" then
             if NS.BugReporter and NS.BugReporter.Show then
@@ -284,7 +383,104 @@ function _G.WOWEngine_OnAddonCompartmentClick(addon, buttonName)
     end
 end
 
--- Draggable Minimap Button (Left-Click: Setup Popup, Right-Click: Stage/Sort)
+-- Blizzard Blue & Gold Right-Click Quick Actions Menu for Minimap Button
+local function ToggleMinimapQuickMenu(anchorBtn)
+    local menu = _G.WOWEngineMinimapMenu
+    if menu and menu:IsShown() then
+        menu:Hide()
+        return
+    end
+
+    if not menu then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        menu = CreateFrame("Frame", "WOWEngineMinimapMenu", UIParent, template)
+        menu:SetSize(208, 372)
+        menu:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu:SetFrameLevel(160)
+        menu:SetClampedToScreen(true)
+        menu:EnableMouse(true)
+
+        if menu.SetBackdrop then
+            pcall(function()
+                menu:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                    tile = true, tileSize = 16, edgeSize = 12,
+                    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+                })
+                menu:SetBackdropColor(0.04, 0.09, 0.19, 0.97)
+                menu:SetBackdropBorderColor(0.95, 0.78, 0.18, 1.0)
+            end)
+        end
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineMinimapMenu")
+        end
+
+        local title = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        title:SetPoint("TOPLEFT", 10, -8)
+        title:SetText("|cff00aeffWOWEngine|r |cffffd100Quick Menu|r")
+
+        local closeBtn = CreateFrame("Button", nil, menu, "UIPanelCloseButton")
+        closeBtn:SetSize(20, 20)
+        closeBtn:SetPoint("TOPRIGHT", -2, -2)
+        closeBtn:SetScript("OnClick", function() menu:Hide() end)
+
+        local actions = {
+            { label = "Open Setup Wizard",       fn = function() SafeOpenOnboarding("show", 1) end },
+            { label = "AddOn Options (Quick)",   fn = function() if NS.SettingsPanel then NS.SettingsPanel:Open() end end },
+            { label = "Questie & Wave Sync",     fn = function() if NS.WaveTracker then NS.WaveTracker:ShowUI() end end },
+            { label = "Wave Setup Wizard",       fn = function() if NS.WaveTracker then NS.WaveTracker:OpenWaveWizard() end end },
+            { label = "Stat Caps & Targets",     fn = function() if NS.StatCapsUI then NS.StatCapsUI:Toggle() end end },
+            { label = "Manage Wave Alts",        fn = function() if NS.WaveTracker then NS.WaveTracker:OpenManageAltsPopup() end end },
+            { label = "Stage Mail / Sort Bags",  fn = function()
+                if NS.MailRouter.isMailboxOpen or (MailFrame and MailFrame:IsShown()) then
+                    NS.MailRouter:StageNextBatch(nil)
+                elseif NS.BankSorter.isBankOpen or (BankFrame and BankFrame:IsShown()) then
+                    NS.BankSorter:RunSort("bank")
+                else
+                    NS.BankSorter:RunSort("bags")
+                end
+            end },
+            { label = "Stage AH / DE BoEs",     fn = function() NS.MailRouter:StageBoEsOnly() end },
+            { label = "Bag Upgrade Priority",   fn = function() if NS.BagRouter then NS.BagRouter:PrintBagStatus() end end },
+            { label = "Wealth Ledger (/hordebank)", fn = function() NS.BankSorter:PrintGoldLedger() end },
+            { label = "Toggle Questie Heading",  fn = function() SlashCmdList["WOWENGINEHELP"]("dock") end },
+            { label = "Copy Bug Report",         fn = function() if NS.BugReporter then NS.BugReporter:Show() end end },
+            { label = "Lock / Unlock Minimap",   fn = function()
+                WOWEngineDB.minimapLock = not WOWEngineDB.minimapLock
+                NS:Print("Minimap button " .. (WOWEngineDB.minimapLock and "|cffffd100Locked|r." or "|cff00ff00Unlocked|r (drag to move)."))
+            end },
+            { label = "Hide Minimap Button",     fn = function() SlashCmdList["WOWENGINEHELP"]("minimap") end },
+        }
+
+        for idx, act in ipairs(actions) do
+            local b = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
+            b:SetSize(188, 22)
+            b:SetPoint("TOPLEFT", 10, -28 - (idx - 1) * 24)
+            b:SetText(act.label)
+            b:SetScript("OnClick", function()
+                menu:Hide()
+                local ok, err = pcall(act.fn)
+                if not ok then
+                    if NS.RecordError then NS:RecordError("MinimapMenu", err) end
+                    NS:Print("|cffff4444Quick Menu error:|r " .. tostring(err))
+                end
+            end)
+        end
+    end
+
+    menu:ClearAllPoints()
+    if anchorBtn then
+        menu:SetPoint("TOPRIGHT", anchorBtn, "BOTTOMLEFT", 0, -2)
+    else
+        menu:SetPoint("CENTER", UIParent, "CENTER")
+    end
+    menu:Show()
+    menu:Raise()
+end
+
+-- Draggable Minimap Button (Left-Click: Setup, Shift+Left-Click: Wave Sync, Right-Click: Quick Menu)
 function NS:InitMinimapButton()
     if not Minimap then return end
     local mm = _G.WOWEngineMinimapButton
@@ -323,6 +519,7 @@ function NS:InitMinimapButton()
         mm:RegisterForDrag("LeftButton")
 
         mm:SetScript("OnDragStart", function(self)
+            if WOWEngineDB and WOWEngineDB.minimapLock then return end
             self:SetScript("OnUpdate", function()
                 local mx, my = Minimap:GetCenter()
                 local cx, cy = GetCursorPosition()
@@ -338,20 +535,15 @@ function NS:InitMinimapButton()
 
         mm:SetScript("OnClick", function(self, button)
             if button == "LeftButton" then
-                SafeOpenOnboarding("toggle")
-            elseif button == "RightButton" then
-                local ok, err = pcall(function()
-                    if NS.MailRouter.isMailboxOpen or (MailFrame and MailFrame:IsShown()) then
-                        NS.MailRouter:StageNextBatch(nil)
-                    elseif NS.BankSorter.isBankOpen or (BankFrame and BankFrame:IsShown()) then
-                        NS.BankSorter:RunSort("bank")
-                    else
-                        NS.BankSorter:RunSort("bags")
+                if IsShiftKeyDown and IsShiftKeyDown() then
+                    if NS.WaveTracker and NS.WaveTracker.ShowUI then
+                        NS.WaveTracker:ShowUI()
                     end
-                end)
-                if not ok then
-                    NS:Print("|cffff4444Minimap action error:|r " .. tostring(err))
+                else
+                    SafeOpenOnboarding("toggle")
                 end
+            elseif button == "RightButton" then
+                ToggleMinimapQuickMenu(self)
             end
         end)
 
@@ -359,8 +551,9 @@ function NS:InitMinimapButton()
             GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             GameTooltip:AddLine("|cff00aeffWOWEngine v" .. NS.Version .. "|r (IllusoryBias)")
             GameTooltip:AddLine("|cffffffffLeft-Click:|r Open Setup & Onboarding Wizard", 0.85, 0.85, 0.85)
-            GameTooltip:AddLine("|cffffffffRight-Click:|r Stage Mail (at Mailbox) / Sort Bank or Bags", 0.85, 0.85, 0.85)
-            GameTooltip:AddLine("|cffffffffDrag:|r Reposition around Minimap", 0.65, 0.65, 0.65)
+            GameTooltip:AddLine("|cffffffffShift + Left-Click:|r Open Questie & Wave Sync", 0.85, 0.85, 0.85)
+            GameTooltip:AddLine("|cffffffffRight-Click:|r Open Quick Actions & Toggles Menu", 0.85, 0.85, 0.85)
+            GameTooltip:AddLine("|cffffffffDrag:|r Reposition around Minimap" .. ((WOWEngineDB and WOWEngineDB.minimapLock) and " (Locked)" or ""), 0.65, 0.65, 0.65)
             GameTooltip:Show()
         end)
         mm:SetScript("OnLeave", function()

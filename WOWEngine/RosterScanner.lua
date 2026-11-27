@@ -65,6 +65,8 @@ function R:HasTargetInCategory(catKey, charName)
     return false
 end
 
+R.MAX_SHARED_PER_PROF = 10
+
 function R:AddTargetToCategory(catKey, charName, isManual)
     local exact = R:FindVerifiedName(charName)
     if not exact then return false, "unverified" end
@@ -77,6 +79,9 @@ function R:AddTargetToCategory(catKey, charName, isManual)
         rules[catKey] = list
     end
     if not alreadyExists then
+        if #list >= (R.MAX_SHARED_PER_PROF or 10) then
+            return false, "limit"
+        end
         table.insert(list, exact)
     end
     if isManual then
@@ -197,7 +202,8 @@ function R:FindCustomTargetsForItem(itemName, itemID)
         if matched then
             matchedKeyword = matchedKeyword or entry.keyword
             local exact = R:FindVerifiedName(entry.target) or C.StripLocalRealm(entry.target)
-            if exact then
+            local rInfo = exact and NS:GetActiveRoster()[exact]
+            if exact and not R:IsExcludedFromMail(rInfo) then
                 if C.IsCurrentPlayer(exact) then
                     isSelfAssigned = true
                 else
@@ -217,20 +223,150 @@ function R:FindCustomTargetsForItem(itemName, itemID)
     return eligible, isSelfAssigned, matchedKeyword
 end
 
+-- Resolve full two-name character when WoW Forever "Hide Second Name" is enabled, and purge duplicate short-name entry
+function R:ResolvePlayerFullName(rawName, playerClass, playerLevel, playerGuid)
+    if not rawName then return nil end
+    local roster = NS:GetActiveRoster()
+
+    -- 1. If rawName already has a space (full two-part name), use it directly
+    if string.find(rawName, " ", 1, true) then
+        NS.resolvedPlayerFullName = rawName
+        return rawName
+    end
+
+    -- 2. Check existing roster for exact GUID match with a full two-part name
+    if playerGuid then
+        for exactName, info in pairs(roster) do
+            if info and info.guid == playerGuid and string.find(exactName, " ", 1, true) then
+                NS.resolvedPlayerFullName = exactName
+                return exactName
+            end
+        end
+    end
+
+    -- 3. Check existing roster for "<rawName> <surname>" matching same class (and closest level)
+    local prefixLow = string.lower(rawName) .. " "
+    local bestName = nil
+    local bestScore = -1
+
+    for exactName, info in pairs(roster) do
+        if exactName and string.sub(string.lower(exactName), 1, #prefixLow) == prefixLow then
+            local score = 10
+            if playerClass and info.class and string.upper(info.class) == string.upper(playerClass) then
+                score = score + 50
+            end
+            if playerLevel and info.level and math.abs((tonumber(info.level) or 0) - playerLevel) <= 2 then
+                score = score + 25
+            end
+            if score > bestScore then
+                bestScore = score
+                bestName = exactName
+            end
+        end
+    end
+
+    if bestName and bestScore >= 60 then
+        NS.resolvedPlayerFullName = bestName
+        return bestName
+    end
+
+    -- 4. Also check Altoholic/DataStore directly if roster hasn't imported yet
+    if C.IsAltoholicAvailable() then
+        local realm, faction = NS:GetContextKeys()
+        for _, ch in ipairs(C.GetAltoholicCharacters(realm, faction)) do
+            if ch.name and string.sub(string.lower(ch.name), 1, #prefixLow) == prefixLow then
+                if (not playerClass) or (not ch.class) or string.upper(ch.class) == string.upper(playerClass) then
+                    NS.resolvedPlayerFullName = ch.name
+                    return ch.name
+                end
+            end
+        end
+    end
+
+    return rawName
+end
+
+-- Merge & remove any stale short-name duplicate (e.g. "Illusorybias") once full name ("Illusorybias druidherbalc") is known
+function R:MergeShortNameDuplicate(shortName, fullName)
+    if not shortName or not fullName or C.IsSameCharacter(shortName, fullName) then return end
+    local roster = NS:GetActiveRoster()
+    local shortEntry = roster[shortName]
+    if shortEntry then
+        local fullEntry = roster[fullName] or {}
+        if shortEntry.excludeFromWave ~= nil and fullEntry.excludeFromWave == nil then
+            fullEntry.excludeFromWave = shortEntry.excludeFromWave
+        end
+        if shortEntry.excludeFromMail ~= nil and fullEntry.excludeFromMail == nil then
+            fullEntry.excludeFromMail = shortEntry.excludeFromMail
+        end
+        roster[fullName] = fullEntry
+        roster[shortName] = nil
+    end
+
+    -- Migrate any mail routing rules pointing to shortName over to fullName
+    local rules = NS:GetActiveRules()
+    for catKey, list in pairs(rules) do
+        if type(list) == "table" then
+            local replaced = false
+            local newList = {}
+            local seen = {}
+            for _, n in ipairs(list) do
+                local target = C.IsSameCharacter(n, shortName) and fullName or n
+                if C.IsSameCharacter(n, shortName) then replaced = true end
+                local k = C.CanonicalCharKey(target)
+                if k and not seen[k] then
+                    seen[k] = true
+                    table.insert(newList, target)
+                end
+            end
+            if replaced then
+                rules[catKey] = newList
+            end
+        end
+    end
+end
+
 function R:ScanCurrentPlayer()
     local roster = NS:GetActiveRoster()
-    local name = C.GetPlayerName()
-    if not name then return nil end
+    local rawName = C.GetRawPlayerName()
+    if not rawName then return nil end
 
+    local pLevel = UnitLevel("player") or 1
+    local pClass = select(2, UnitClass("player")) or "UNKNOWN"
+    local pGuid = nil
+    if UnitGUID then
+        local okG, g = pcall(UnitGUID, "player")
+        if okG and g and not C.IsSecret(g) then pGuid = g end
+    end
+
+    local resolvedName = R:ResolvePlayerFullName(rawName, pClass, pLevel, pGuid)
+    if resolvedName and resolvedName ~= rawName then
+        R:MergeShortNameDuplicate(rawName, resolvedName)
+    end
+
+    local name = resolvedName or rawName
     local existing = roster[name] or {}
     local profs = C.GetPlayerProfessions()
     existing.name = name
-    existing.level = UnitLevel("player") or existing.level or 1
-    existing.class = select(2, UnitClass("player")) or existing.class or "UNKNOWN"
+    existing.shortName = (rawName ~= name) and rawName or existing.shortName
+    existing.guid = pGuid or existing.guid
+    existing.level = pLevel
+    existing.class = pClass
     existing.source = "login"
     existing.verified = true
+    existing.isOwnAlt = true
     existing.lastSeen = time()
-    existing.professions = profs
+    if next(profs) ~= nil then
+        existing.professions = profs
+    else
+        existing.professions = existing.professions or {}
+    end
+    local subs = C.GetPlayerSubProfessions()
+    if next(subs) ~= nil then
+        existing.subProfessions = subs
+    else
+        existing.subProfessions = existing.subProfessions or {}
+    end
     roster[name] = existing
     return existing
 end
@@ -256,6 +392,10 @@ function R:ScanAltoholic()
                     source = "altoholic",
                     verified = true,
                     lastSeen = time(),
+                    playedTime = ch.playedTime or 0,
+                    equippedBags = ch.equippedBags,
+                    totalBagSlots = ch.totalBagSlots or 0,
+                    regularBagSlots = ch.regularBagSlots or 0,
                     professions = ch.professions or {},
                 }
                 imported = imported + 1
@@ -263,6 +403,12 @@ function R:ScanAltoholic()
                 entry.verified = true
                 if ch.level and ch.level > (entry.level or 0) then entry.level = ch.level end
                 if ch.class and ch.class ~= "UNKNOWN" then entry.class = ch.class end
+                if ch.playedTime and ch.playedTime > (entry.playedTime or 0) then entry.playedTime = ch.playedTime end
+                if ch.equippedBags and type(entry.equippedBags) ~= "table" then
+                    entry.equippedBags = ch.equippedBags
+                    entry.totalBagSlots = ch.totalBagSlots or 0
+                    entry.regularBagSlots = ch.regularBagSlots or 0
+                end
                 if ch.professions and next(ch.professions) ~= nil then
                     entry.professions = entry.professions or {}
                     for pName, pRank in pairs(ch.professions) do
@@ -373,6 +519,7 @@ function R:AutoMapVerifiedRoutes(forceRebuild)
 
     local sorted = R:GetSortedVerifiedList()
     for _, info in ipairs(sorted) do
+        if not R:IsExcludedFromMail(info) then
         local exactName = info.name
         local matchedCats = {}
 
@@ -395,6 +542,7 @@ function R:AutoMapVerifiedRoutes(forceRebuild)
             if forceRebuild or not manual[catKey] then
                 R:AddTargetToCategory(catKey, exactName, false)
             end
+        end
         end
     end
 end
@@ -426,6 +574,72 @@ function R:GetSortedVerifiedList()
     return list
 end
 
+function R:IsIncludedInWave(info)
+    if not info or not info.verified then return false end
+    if info.excludeFromWave == true then return false end
+    if info.includeInWave == true then return true end
+    local ws = NS:GetWaveState()
+    local allowAlto = (ws and ws.includeAltoholicInWave) and true or false
+    local isMine = (info.isOwnAlt == true) or (info.source == "login") or C.IsCurrentPlayer(info.name)
+    return isMine or (allowAlto and info.source == "altoholic")
+end
+
+function R:SetWaveExcluded(charName, excluded)
+    local exact = R:FindVerifiedName(charName)
+    if not exact then return false, nil end
+    local roster = NS:GetActiveRoster()
+    local info = roster[exact]
+    if not info then return false, nil end
+    if excluded then
+        info.excludeFromWave = true
+        info.includeInWave = false
+    else
+        info.excludeFromWave = false
+        info.includeInWave = true
+    end
+    return true, exact
+end
+
+
+function R:IsExcludedFromMail(info)
+    if not info then return false end
+    return info.excludeFromMail == true
+end
+
+function R:SetMailExcluded(charName, excluded)
+    local exact = R:FindVerifiedName(charName)
+    if not exact then return false, nil end
+    local roster = NS:GetActiveRoster()
+    local info = roster[exact]
+    if not info then return false, nil end
+    info.excludeFromMail = excluded and true or false
+
+    -- If excluded from mail, remove from all active mail categories immediately
+    if info.excludeFromMail then
+        for _, cat in ipairs(NS.CATEGORIES) do
+            R:RemoveTargetFromCategory(cat.key, exact, true)
+        end
+    end
+    return true, exact
+end
+
+-- Returns ONLY characters included in Wave Leveling Sync (respects per-character Exclude/Include boxes)
+function R:GetOwnLevelingRoster()
+    local roster = NS:GetActiveRoster()
+    local list = {}
+
+    for _, info in pairs(roster) do
+        if R:IsIncludedInWave(info) then
+            table.insert(list, info)
+        end
+    end
+
+    table.sort(list, function(a, b)
+        return string.lower(a.name or "") < string.lower(b.name or "")
+    end)
+    return list
+end
+
 function R:GetEligibleTargetsForCategory(category)
     if not category then return {}, false end
     local configured = R:GetCategoryTargets(category)
@@ -433,9 +647,10 @@ function R:GetEligibleTargetsForCategory(category)
     local isSelfAssigned = false
     local seen = {}
 
+    local roster = NS:GetActiveRoster()
     for _, rawTarget in ipairs(configured) do
         local exact = R:FindVerifiedName(rawTarget)
-        if exact then
+        if exact and not R:IsExcludedFromMail(roster[exact]) then
             if C.IsCurrentPlayer(exact) then
                 isSelfAssigned = true
             else
@@ -465,9 +680,9 @@ function R:GetVerifiedCount()
 end
 
 function R:ScanAll(silent)
-    R:ScanCurrentPlayer()
     R:ScanAltoholic()
     R:ScanGuildAndFriends()
+    R:ScanCurrentPlayer()
     R:AutoMapVerifiedRoutes(false)
     if not silent then
         R:PrintRoster()
@@ -522,6 +737,8 @@ local scanEvents = CreateFrame("Frame")
 scanEvents:RegisterEvent("GUILD_ROSTER_UPDATE")
 scanEvents:RegisterEvent("FRIENDLIST_UPDATE")
 scanEvents:RegisterEvent("SKILL_LINES_CHANGED")
+scanEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+scanEvents:RegisterEvent("TRADE_SKILL_SHOW")
 scanEvents:RegisterEvent("MAIL_SHOW")
 scanEvents:SetScript("OnEvent", function(self, event)
     if event == "MAIL_SHOW" then
@@ -532,8 +749,204 @@ scanEvents:SetScript("OnEvent", function(self, event)
         if NS.Onboarding and NS.Onboarding.RefreshIfShown then
             NS.Onboarding:RefreshIfShown()
         end
-    elseif event == "SKILL_LINES_CHANGED" then
+    elseif event == "SKILL_LINES_CHANGED" or event == "PLAYER_ENTERING_WORLD" or event == "TRADE_SKILL_SHOW" then
         R:ScanCurrentPlayer()
         R:AutoMapVerifiedRoutes(false)
+        if NS.Onboarding and NS.Onboarding.RefreshIfShown then
+            NS.Onboarding:RefreshIfShown()
+        end
     end
 end)
+
+
+-- Ordered list of primary professions for planning new characters
+R.PRIMARY_PROF_LIST = {
+    "None",
+    "Herbalism",
+    "Alchemy",
+    "Enchanting",
+    "Mining",
+    "Blacksmithing",
+    "Engineering",
+    "Jewelcrafting",
+    "Leatherworking",
+    "Skinning",
+    "Tailoring",
+    "Inscription",
+}
+
+function R:GetCategoriesForProfession(profName)
+    if not profName or profName == "None" then return {} end
+    return PROF_TO_CATEGORIES[profName] or {}
+end
+
+-- Returns all OTHER verified characters who share a given mail category (no hidden "+1 more")
+function R:GetSharedAltsForCategory(catKey, excludeCharName)
+    local targets = R:GetCategoryTargets(catKey)
+    local others = {}
+    for _, name in ipairs(targets) do
+        if not excludeCharName or not C.IsSameCharacter(name, excludeCharName) then
+            table.insert(others, name)
+        end
+    end
+    return others
+end
+
+-- Returns dynamic profession profile for a character:
+-- phase 1 = No learned profs yet (Planned), phase 2 = Learned & Auto-Mapped, phase 3 = Learned + Mastercraft Active
+function R:GetCharacterProfessionProfile(charName)
+    local roster = NS:GetActiveRoster()
+    local exact = R:FindVerifiedName(charName) or charName
+    local info = (exact and roster[exact]) or {}
+    local plans = NS:GetCharPlans()
+    local cKey = C.CanonicalCharKey(exact) or string.lower(exact or "unknown")
+    local plan = plans[cKey] or {}
+
+    local learnedList = {}
+    if info.professions then
+        for pName, rank in pairs(info.professions) do
+            table.insert(learnedList, { name = pName, rank = tonumber(rank) or 1, learned = true })
+        end
+        table.sort(learnedList, function(a, b) return a.name < b.name end)
+    end
+
+    local p1 = learnedList[1] or (plan.p1 and plan.p1 ~= "None" and { name = plan.p1, rank = 0, learned = false } or nil)
+    local p2 = learnedList[2] or (plan.p2 and plan.p2 ~= "None" and { name = plan.p2, rank = 0, learned = false } or nil)
+
+    local learnedCount = #learnedList
+    local phase = 1
+    if learnedCount > 0 then
+        phase = C.IsMastercraftAvailable() and 3 or 2
+    end
+
+    local subs = info.subProfessions or {}
+    local isBank = R:HasTargetInCategory("BankAlt", exact)
+
+    return {
+        name = exact,
+        level = tonumber(info.level) or 0,
+        class = info.class or "UNKNOWN",
+        source = info.source or "scan",
+        phase = phase,
+        learnedCount = learnedCount,
+        p1 = p1,
+        p2 = p2,
+        subs = subs,
+        isBankAlt = isBank,
+    }
+end
+
+-- Cycle or set planned primary profession (slot 1 or 2) for a character that hasn't learned it yet
+function R:CyclePlannedProfession(charName, slotNum)
+    local exact = R:FindVerifiedName(charName)
+    if not exact then return nil end
+    local plans = NS:GetCharPlans()
+    local cKey = C.CanonicalCharKey(exact)
+    plans[cKey] = plans[cKey] or {}
+    local field = (slotNum == 1) and "p1" or "p2"
+    local cur = plans[cKey][field] or "None"
+
+    local nextIdx = 1
+    for i, pName in ipairs(R.PRIMARY_PROF_LIST) do
+        if pName == cur then
+            nextIdx = (i % #R.PRIMARY_PROF_LIST) + 1
+            break
+        end
+    end
+    local chosen = R.PRIMARY_PROF_LIST[nextIdx]
+    plans[cKey][field] = (chosen ~= "None") and chosen or nil
+
+    -- Auto-map material categories if user picks a planned profession
+    if chosen ~= "None" then
+        for _, catKey in ipairs(R:GetCategoriesForProfession(chosen)) do
+            R:AddTargetToCategory(catKey, exact, true)
+        end
+    end
+    return chosen
+end
+
+
+-- Move a character up (-1) or down (+1) in the active priority list for a category
+function R:MoveCategoryTarget(catKey, index, delta)
+    local rules = NS:GetActiveRules()
+    local list = rules[catKey]
+    if type(list) ~= "table" then return false end
+    local newIndex = index + delta
+    if index < 1 or index > #list or newIndex < 1 or newIndex > #list then
+        return false
+    end
+    local tmp = list[index]
+    list[index] = list[newIndex]
+    list[newIndex] = tmp
+    local manual = NS:GetManualFlags()
+    manual[catKey] = true
+    return true
+end
+
+-- Sort active priority list by profession skill rank (highest first) or character level (highest first)
+function R:SortCategoryTargets(catKey, profName, sortBy)
+    local rules = NS:GetActiveRules()
+    local list = rules[catKey]
+    if type(list) ~= "table" or #list < 2 then return false end
+    local roster = NS:GetActiveRoster()
+
+    table.sort(list, function(a, b)
+        local ia = roster[a] or {}
+        local ib = roster[b] or {}
+        if sortBy == "skill" and profName then
+            local sa = (ia.professions and tonumber(ia.professions[profName])) or 0
+            local sb = (ib.professions and tonumber(ib.professions[profName])) or 0
+            if sa ~= sb then return sa > sb end
+        end
+        local la = tonumber(ia.level) or 0
+        local lb = tonumber(ib.level) or 0
+        if la ~= lb then return la > lb end
+        return string.lower(a or "") < string.lower(b or "")
+    end)
+
+    local manual = NS:GetManualFlags()
+    manual[catKey] = true
+    return true
+end
+
+-- Return all verified characters sharing a profession/category (active top 10 + overflow pool if >10)
+function R:GetSharedPoolForProfession(profName, catKey)
+    local active = R:GetCategoryTargets(catKey)
+    local activeMap = {}
+    for _, name in ipairs(active) do
+        local k = C.CanonicalCharKey(name)
+        if k then activeMap[k] = true end
+    end
+
+    local pool = {}
+    local plans = NS:GetCharPlans()
+    local sorted = R:GetSortedVerifiedList()
+
+    for _, info in ipairs(sorted) do
+        local k = C.CanonicalCharKey(info.name)
+        if k and not activeMap[k] and not R:IsExcludedFromMail(info) then
+            local matchesProf = false
+            if profName and info.professions and info.professions[profName] then
+                matchesProf = true
+            end
+            if not matchesProf and profName and plans[k] then
+                if plans[k].p1 == profName or plans[k].p2 == profName then
+                    matchesProf = true
+                end
+            end
+            if not matchesProf and catKey then
+                for _, inferred in ipairs(InferCategoriesFromVerifiedName(info.name)) do
+                    if inferred == catKey then
+                        matchesProf = true
+                        break
+                    end
+                end
+            end
+            if matchesProf then
+                table.insert(pool, info)
+            end
+        end
+    end
+
+    return active, pool
+end

@@ -165,16 +165,28 @@ function C.IsSameCharacter(nameA, nameB)
     return kA == kB
 end
 
-function C.GetPlayerName()
+function C.GetRawPlayerName()
     local name = C.SafeStr(UnitName("player"))
     return C.StripLocalRealm(name)
 end
 
--- Strict self-mail guard: returns true if candidateName is the currently logged-in character
+-- Returns the canonical full name of the logged-in character (resolves WoW Forever "Hide Second Name")
+function C.GetPlayerName()
+    if NS and NS.resolvedPlayerFullName and NS.resolvedPlayerFullName ~= "" then
+        return NS.resolvedPlayerFullName
+    end
+    return C.GetRawPlayerName()
+end
+
+-- Strict self-mail guard: matches both resolved full two-part name AND short "Hide Second Name" display name
 function C.IsCurrentPlayer(candidateName)
     if not candidateName then return false end
-    local pName = C.GetPlayerName()
-    if pName and C.IsSameCharacter(candidateName, pName) then
+    local resolved = NS and NS.resolvedPlayerFullName
+    if resolved and C.IsSameCharacter(candidateName, resolved) then
+        return true
+    end
+    local rawName = C.GetRawPlayerName()
+    if rawName and C.IsSameCharacter(candidateName, rawName) then
         return true
     end
     if UnitFullName then
@@ -186,41 +198,119 @@ function C.IsCurrentPlayer(candidateName)
             end
         end
     end
+    -- Also match by saved UnitGUID if available in active roster
+    if UnitGUID and NS and NS.GetActiveRoster then
+        local okG, pGuid = pcall(UnitGUID, "player")
+        if okG and pGuid and not C.IsSecret(pGuid) then
+            local roster = NS:GetActiveRoster()
+            local key = C.CanonicalCharKey(candidateName)
+            for exactName, info in pairs(roster) do
+                if info and info.guid == pGuid and C.CanonicalCharKey(exactName) == key then
+                    return true
+                end
+            end
+        end
+    end
     return false
 end
+
+local KNOWN_PRIMARY_PROFS = {
+    "Herbalism", "Alchemy", "Enchanting", "Mining", "Blacksmithing",
+    "Engineering", "Jewelcrafting", "Leatherworking", "Skinning",
+    "Tailoring", "Inscription",
+}
+
+local KNOWN_SUB_PROFS = {
+    "Cooking", "Fishing", "First Aid",
+}
+
+local function MatchCanonicalProf(rawName, list)
+    if not rawName or C.IsSecret(rawName) then return nil end
+    local low = string.lower(tostring(rawName))
+    for _, canonical in ipairs(list) do
+        if low == string.lower(canonical) or string.find(low, string.lower(canonical), 1, true) then
+            return canonical
+        end
+    end
+    return nil
+end
+
+local function PlayerKnowsAnySpell(spellIDs)
+    for _, sid in ipairs(spellIDs) do
+        if IsPlayerSpell then
+            local ok, known = pcall(IsPlayerSpell, sid)
+            if ok and known then return true end
+        end
+        if IsSpellKnown then
+            local ok, known = pcall(IsSpellKnown, sid)
+            if ok and known then return true end
+        end
+    end
+    return false
+end
+
+local PRIMARY_PROF_SPELLS = {
+    Herbalism      = { 2366, 2368, 3570, 11993, 28695, 2383 },
+    Alchemy        = { 2259, 3101, 3464, 11611, 28596 },
+    Enchanting     = { 7411, 7412, 7413, 13920, 28029, 13262 },
+    Mining         = { 2575, 2576, 3564, 10248, 29354, 2656, 2580 },
+    Blacksmithing  = { 2018, 3100, 3538, 9785, 29844 },
+    Engineering    = { 4036, 4037, 4038, 12656, 30350 },
+    Jewelcrafting  = { 25229, 25230, 28894, 28895, 28897, 31252 },
+    Leatherworking = { 2108, 3104, 3811, 10662, 32549 },
+    Skinning       = { 8613, 8617, 8618, 10768, 32678 },
+    Tailoring      = { 3908, 3909, 3910, 12180, 26790 },
+    Inscription    = { 45357, 45358, 45359, 45360, 45361, 51005 },
+}
+
+local SUB_PROF_SPELLS = {
+    Cooking       = { 2550, 3102, 3413, 18260, 33359 },
+    Fishing       = { 7620, 7731, 7732, 18248, 33095 },
+    ["First Aid"] = { 3273, 3274, 7924, 10846, 27028 },
+}
 
 -- Scan current character's learned primary professions across Retail/Forever/MoP/TBC/Classic
 function C.GetPlayerProfessions()
     local profs = {}
-    local known = {
-        ["Herbalism"] = true, ["Alchemy"] = true, ["Enchanting"] = true,
-        ["Mining"] = true, ["Blacksmithing"] = true, ["Engineering"] = true,
-        ["Jewelcrafting"] = true, ["Leatherworking"] = true, ["Skinning"] = true,
-        ["Tailoring"] = true, ["Inscription"] = true,
-    }
 
+    -- Method 1: Modern GetProfessions() (use explicit array + numeric loop so nil slot 1 never skips slot 2)
     if GetProfessions and GetProfessionInfo then
-        local p1, p2 = GetProfessions()
-        for _, idx in ipairs({ p1, p2 }) do
-            if idx then
-                local ok, name, _, rank = pcall(GetProfessionInfo, idx)
-                if ok and name and not C.IsSecret(name) then
-                    profs[name] = rank or 1
+        local okG, p1, p2 = pcall(GetProfessions)
+        if okG then
+            local slots = { [1] = p1, [2] = p2 }
+            for i = 1, 2 do
+                local idx = slots[i]
+                if idx then
+                    local ok, name, _, rank = pcall(GetProfessionInfo, idx)
+                    if ok and name and not C.IsSecret(name) then
+                        local canon = MatchCanonicalProf(name, KNOWN_PRIMARY_PROFS) or name
+                        profs[canon] = tonumber(rank) or 1
+                    end
                 end
             end
         end
-        if next(profs) ~= nil then
-            return profs
+    end
+
+    -- Method 2: Classic / WoW Forever Skill Lines (handles expansion prefixes & partial matches)
+    if GetNumSkillLines and GetSkillLineInfo then
+        local okN, num = pcall(GetNumSkillLines)
+        if okN and type(num) == "number" and num > 0 then
+            for i = 1, num do
+                local ok, skillName, isHeader, _, skillRank = pcall(GetSkillLineInfo, i)
+                if ok and not isHeader and skillName and not C.IsSecret(skillName) then
+                    local canon = MatchCanonicalProf(skillName, KNOWN_PRIMARY_PROFS)
+                    if canon then
+                        profs[canon] = tonumber(skillRank) or profs[canon] or 1
+                    end
+                end
+            end
         end
     end
 
-    if GetNumSkillLines and GetSkillLineInfo then
-        local num = GetNumSkillLines() or 0
-        for i = 1, num do
-            local ok, skillName, isHeader, _, skillRank = pcall(GetSkillLineInfo, i)
-            if ok and not isHeader and skillName and known[skillName] then
-                profs[skillName] = skillRank or 1
-            end
+    -- Method 3: Spellbook fallback (detects professions even if Classic Skill header is collapsed or uncached)
+    for profName, spellList in pairs(PRIMARY_PROF_SPELLS) do
+        if not profs[profName] and PlayerKnowsAnySpell(spellList) then
+            profs[profName] = 1
         end
     end
 
@@ -316,6 +406,90 @@ function C.IsAuctionatorAvailable()
     return (_G.Auctionator ~= nil) or C.IsAddOnLoaded("Auctionator")
 end
 
+
+local function ClassifyAltoBagType(link, bagObj)
+    if link and type(link) == "string" then
+        local low = string.lower(link)
+        if string.find(low, "quiver") or string.find(low, "ammo") or string.find(low, "bandolier") then return "quiver" end
+        if string.find(low, "reagent") then return "reagent" end
+        if string.find(low, "herb") then return "herb" end
+        if string.find(low, "enchant") then return "enchanting" end
+        if string.find(low, "engineer") then return "engineering" end
+        if string.find(low, "gem") then return "gem" end
+        if string.find(low, "mining") then return "mining" end
+        if string.find(low, "leather") then return "leather" end
+        if string.find(low, "inscription") then return "inscription" end
+        if string.find(low, "soul") then return "soul" end
+    end
+    if type(bagObj) == "table" and bagObj.bagtype then
+        local bt = tonumber(bagObj.bagtype) or 0
+        if bt == 1 or bt == 2 then return "quiver" end
+        if bt == 4 then return "soul" end
+        if bt == 8 then return "leather" end
+        if bt == 16 then return "inscription" end
+        if bt == 32 then return "herb" end
+        if bt == 64 then return "enchanting" end
+        if bt == 128 then return "engineering" end
+        if bt == 512 then return "gem" end
+        if bt == 1024 then return "mining" end
+        if bt == 2048 then return "reagent" end
+    end
+    return "regular"
+end
+
+function C.GetAltoholicEquippedBags(charKey)
+    local DS = _G.DataStore
+    if not DS or not charKey then return nil, 0, 0 end
+
+    local equipped = {}
+    local foundAnyData = false
+    local totalAll = 0
+    local totalRegular = 0
+
+    for bagID = 1, 5 do
+        local slots = nil
+        local link = nil
+        local bagObj = nil
+
+        if DS.GetContainer then
+            local okB, b = pcall(DS.GetContainer, DS, charKey, "Bag" .. bagID)
+            if okB and type(b) == "table" then
+                bagObj = b
+                slots = tonumber(b.size) or tonumber(b.Size)
+                link = b.link or b.Link
+            end
+        end
+        if slots == nil and DS.GetContainerSize then
+            local okS, s = pcall(DS.GetContainerSize, DS, charKey, bagID)
+            if okS and type(s) == "number" then
+                slots = s
+            end
+        end
+
+        if slots ~= nil then
+            foundAnyData = true
+            local bType = "empty"
+            if slots > 0 then
+                bType = (bagID == 5) and "reagent" or ClassifyAltoBagType(link, bagObj)
+            end
+            if bagID <= 4 or slots > 0 then
+                equipped[bagID] = { slots = slots, bagType = bType }
+                totalAll = totalAll + slots
+                if bType ~= "quiver" and bagID <= 4 then
+                    totalRegular = totalRegular + slots
+                end
+            end
+        elseif bagID <= 4 then
+            equipped[bagID] = { slots = 0, bagType = "empty" }
+        end
+    end
+
+    if not foundAnyData then
+        return nil, 0, 0
+    end
+    return equipped, totalAll, totalRegular
+end
+
 function C.GetAltoholicCharacters(targetRealm, targetFaction)
     local results = {}
     local DS = _G.DataStore
@@ -386,12 +560,24 @@ function C.GetAltoholicCharacters(targetRealm, targetFaction)
                         end
                     end
 
+                    local playedTime = nil
+                    if DS.GetPlayTime then
+                        local okPT, pt = pcall(DS.GetPlayTime, DS, charKey)
+                        if okPT and type(pt) == "number" then playedTime = pt end
+                    end
+
+                    local eqBags, totBags, regBags = C.GetAltoholicEquippedBags(charKey)
+
                     table.insert(results, {
                         name = cleanName,
                         level = level,
                         class = classFile,
                         faction = charFaction or faction,
                         copper = copper,
+                        playedTime = playedTime,
+                        equippedBags = eqBags,
+                        totalBagSlots = totBags,
+                        regularBagSlots = regBags,
                         professions = profs,
                     })
                 end
@@ -485,4 +671,52 @@ function C.GetMaxBagIndex()
         maxBag = 5
     end
     return maxBag
+end
+
+
+-- Scan current character's learned secondary/sub-professions (Cooking, Fishing, First Aid)
+function C.GetPlayerSubProfessions()
+    local subs = {}
+
+    if GetProfessions and GetProfessionInfo then
+        local okG, _, _, arch, fish, cook, fa = pcall(GetProfessions)
+        if okG then
+            local slots = { [1] = fish, [2] = cook, [3] = fa, [4] = arch }
+            for i = 1, 4 do
+                local idx = slots[i]
+                if idx then
+                    local ok, name, _, rank = pcall(GetProfessionInfo, idx)
+                    if ok and name and not C.IsSecret(name) then
+                        local canon = MatchCanonicalProf(name, KNOWN_SUB_PROFS)
+                        if canon then
+                            subs[canon] = tonumber(rank) or 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if GetNumSkillLines and GetSkillLineInfo then
+        local okN, num = pcall(GetNumSkillLines)
+        if okN and type(num) == "number" and num > 0 then
+            for i = 1, num do
+                local ok, skillName, isHeader, _, skillRank = pcall(GetSkillLineInfo, i)
+                if ok and not isHeader and skillName and not C.IsSecret(skillName) then
+                    local canon = MatchCanonicalProf(skillName, KNOWN_SUB_PROFS)
+                    if canon then
+                        subs[canon] = tonumber(skillRank) or subs[canon] or 1
+                    end
+                end
+            end
+        end
+    end
+
+    for subName, spellList in pairs(SUB_PROF_SPELLS) do
+        if not subs[subName] and PlayerKnowsAnySpell(spellList) then
+            subs[subName] = 1
+        end
+    end
+
+    return subs
 end
