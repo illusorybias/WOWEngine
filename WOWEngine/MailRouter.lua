@@ -149,15 +149,42 @@ local function ClassifyTradeGoodByName(itemName)
     return nil
 end
 
+local function IsBagOrContainerItem(classID, itemEquipLoc, itemType)
+    local containerClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Container) or 1
+    local quiverClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Quiver) or 11
+    if classID == containerClassID or classID == quiverClassID or itemEquipLoc == "INVTYPE_BAG" then
+        return true
+    end
+    if itemType == "Container" or itemType == "Bag" or itemType == "Quiver" then
+        return true
+    end
+    return false
+end
+
 function MR:ResolveCategoryForItem(itemLink, itemID)
     if not itemLink then return nil, nil end
-    local itemName, _, quality, _, _, itemType, itemSubType, _, _, _, _, classID, subClassID = C.GetItemInfo(itemLink)
+    local itemName, _, quality, _, _, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subClassID = C.GetItemInfo(itemLink)
+    if classID == nil or itemEquipLoc == nil or itemEquipLoc == "" then
+        local _, instType, instSubType, instEquipLoc, _, instClassID, instSubClassID = C.GetItemInfoInstant(itemLink or itemID)
+        itemType = itemType or instType
+        itemSubType = itemSubType or instSubType
+        if not itemEquipLoc or itemEquipLoc == "" then itemEquipLoc = instEquipLoc end
+        if classID == nil then classID = instClassID end
+        if subClassID == nil then subClassID = instSubClassID end
+    end
     if not itemName then
         if itemID then C.RequestLoadItemDataByID(itemID) end
         itemName = C.ExtractItemName(itemLink)
         if not itemName then
             return nil, nil
         end
+    end
+
+    -- Check actual WoW Container / Bag class and equip location FIRST —
+    -- BEFORE any item-name keyword matching ("leather", "linen", "wool", "silk", etc.)
+    -- so items like "Blue Leather Bag" are always classified as Bags/Containers.
+    if IsBagOrContainerItem(classID, itemEquipLoc, itemType) then
+        return "Bags", itemName
     end
 
     if classID == 7 then -- Tradeskill / Trade Goods
@@ -189,8 +216,7 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
     -- Tradeable Uncommon/Rare/Epic Armor & Weapons (BoEs) -> Enchanter DisenchantBoE if configured, else BankAlt
     if quality and (quality >= 2 and quality <= 4) and (classID == 2 or classID == 4 or itemType == "Armor" or itemType == "Weapon") then
         -- Exclude shirts (INVTYPE_BODY) and tabards (INVTYPE_TABARD) which cannot be disenchanted
-        local _, _, _, _, _, _, _, _, equipLoc = C.GetItemInfo(itemLink)
-        if equipLoc ~= "INVTYPE_BODY" and equipLoc ~= "INVTYPE_TABARD" then
+        if itemEquipLoc ~= "INVTYPE_BODY" and itemEquipLoc ~= "INVTYPE_TABARD" then
             local deTargets = NS.Roster:GetCategoryTargets("DisenchantBoE")
             if type(deTargets) == "table" and #deTargets > 0 then
                 return "DisenchantBoE", itemName
@@ -303,13 +329,37 @@ function MR:BuildShipmentPlan(forcedTarget)
                                 localOffset["Custom"] = off + 1
                             end
                         else
-                            -- Priority 1.5: Smart Bag Upgrade Routing (Level -> Played Time -> Total Space; respects Hunter Quivers & Reagent > Specialty rule)
+                            -- Priority 1.5: Bag / Container Routing (runs BEFORE standard trade-good categories;
+                            -- tries smart bag-upgrade recipient first, then Bags / BankAlt fallback for surplus bags)
                             local bagInfo = NS.BagRouter and NS.BagRouter:InspectBagItem(link, itemID, bag, slot) or nil
-                            if bagInfo then
-                                local bagDest = NS.BagRouter:FindBestRecipientForBag(bagInfo, simBagState)
-                                if bagDest then
-                                    dest = bagDest
-                                    routeLabel = "BagUpgrade"
+                            if cat == "Bags" or bagInfo then
+                                routeLabel = "Bags"
+                                local addonHeld = MR:IsAddonHoldProtected(itemID)
+                                if addonHeld then
+                                    stats.skippedMC = stats.skippedMC + 1
+                                else
+                                    local bagDest = bagInfo and NS.BagRouter:FindBestRecipientForBag(bagInfo, simBagState) or nil
+                                    if bagDest then
+                                        dest = bagDest
+                                    else
+                                        local bagEligible, bagSelf = NS.Roster:GetEligibleTargetsForCategory("Bags")
+                                        if #bagEligible == 0 and not bagSelf then
+                                            bagEligible, bagSelf = NS.Roster:GetEligibleTargetsForCategory("BankAlt")
+                                        end
+                                        if #bagEligible == 0 then
+                                            if bagSelf then
+                                                stats.keptForSelf = stats.keptForSelf + 1
+                                            end
+                                        elseif #bagEligible == 1 or mode == "priority" then
+                                            dest = bagEligible[1]
+                                        else
+                                            local baseIdx = tonumber(rrCursors["Bags"]) or 1
+                                            local off = localOffset["Bags"] or 0
+                                            local pickIdx = ((baseIdx - 1 + off) % #bagEligible) + 1
+                                            dest = bagEligible[pickIdx]
+                                            localOffset["Bags"] = off + 1
+                                        end
+                                    end
                                 end
                             else
                             -- Priority 2: Standard Category Routing (respects Mastercraft & Auctionator holds)

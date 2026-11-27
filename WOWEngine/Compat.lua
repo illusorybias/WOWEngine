@@ -42,6 +42,16 @@ function C.GetItemInfo(item)
     return nil
 end
 
+function C.GetItemInfoInstant(item)
+    if not item then return nil end
+    if C_Item and C_Item.GetItemInfoInstant then
+        return C_Item.GetItemInfoInstant(item)
+    elseif GetItemInfoInstant then
+        return GetItemInfoInstant(item)
+    end
+    return nil
+end
+
 function C.RequestLoadItemDataByID(itemID)
     if itemID and C_Item and C_Item.RequestLoadItemDataByID then
         C_Item.RequestLoadItemDataByID(itemID)
@@ -408,21 +418,9 @@ end
 
 
 local function ClassifyAltoBagType(link, bagObj)
-    if link and type(link) == "string" then
-        local low = string.lower(link)
-        if string.find(low, "quiver") or string.find(low, "ammo") or string.find(low, "bandolier") then return "quiver" end
-        if string.find(low, "reagent") then return "reagent" end
-        if string.find(low, "herb") then return "herb" end
-        if string.find(low, "enchant") then return "enchanting" end
-        if string.find(low, "engineer") then return "engineering" end
-        if string.find(low, "gem") then return "gem" end
-        if string.find(low, "mining") then return "mining" end
-        if string.find(low, "leather") then return "leather" end
-        if string.find(low, "inscription") then return "inscription" end
-        if string.find(low, "soul") then return "soul" end
-    end
-    if type(bagObj) == "table" and bagObj.bagtype then
+    if type(bagObj) == "table" and bagObj.bagtype ~= nil then
         local bt = tonumber(bagObj.bagtype) or 0
+        if bt == 0 then return "regular" end
         if bt == 1 or bt == 2 then return "quiver" end
         if bt == 4 then return "soul" end
         if bt == 8 then return "leather" end
@@ -433,6 +431,36 @@ local function ClassifyAltoBagType(link, bagObj)
         if bt == 512 then return "gem" end
         if bt == 1024 then return "mining" end
         if bt == 2048 then return "reagent" end
+    end
+    if link and type(link) == "string" then
+        local containerClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Container) or 1
+        local quiverClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Quiver) or 11
+        local _, _, _, _, _, classID, subClassID = C.GetItemInfoInstant(link)
+        if classID == quiverClassID then return "quiver" end
+        if classID == containerClassID and subClassID ~= nil then
+            if subClassID == 0 then return "regular" end
+            if subClassID == 1 then return "soul" end
+            if subClassID == 2 then return "herb" end
+            if subClassID == 3 then return "enchanting" end
+            if subClassID == 4 then return "engineering" end
+            if subClassID == 5 then return "gem" end
+            if subClassID == 6 then return "mining" end
+            if subClassID == 7 then return "leather" end
+            if subClassID == 8 then return "inscription" end
+            if subClassID == 11 then return "reagent" end
+            return "regular"
+        end
+        local low = string.lower(link)
+        if string.find(low, "quiver") or string.find(low, "ammo") or string.find(low, "bandolier") then return "quiver" end
+        if string.find(low, "reagent") then return "reagent" end
+        if string.find(low, "herb") then return "herb" end
+        if string.find(low, "enchant") then return "enchanting" end
+        if string.find(low, "engineer") then return "engineering" end
+        if string.find(low, "gem") then return "gem" end
+        if string.find(low, "mining") then return "mining" end
+        if string.find(low, "leatherwork") or string.find(low, "trapper") or string.find(low, "many hides") then return "leather" end
+        if string.find(low, "inscription") then return "inscription" end
+        if string.find(low, "soul") then return "soul" end
     end
     return "regular"
 end

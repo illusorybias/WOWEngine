@@ -76,12 +76,22 @@ end
 -- Classify a bag item into { isBag, bagType, slots, name }
 function BR:InspectBagItem(itemLink, itemID, bag, slot)
     if not itemLink then return nil end
-    local itemName, _, _, _, _, itemType, itemSubType, _, _, _, _, classID, subClassID = C.GetItemInfo(itemLink)
+    local itemName, _, _, _, _, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subClassID = C.GetItemInfo(itemLink)
+    if classID == nil or itemEquipLoc == nil or itemEquipLoc == "" then
+        local _, instType, instSubType, instEquipLoc, _, instClassID, instSubClassID = C.GetItemInfoInstant(itemLink or itemID)
+        itemType = itemType or instType
+        itemSubType = itemSubType or instSubType
+        if not itemEquipLoc or itemEquipLoc == "" then itemEquipLoc = instEquipLoc end
+        if classID == nil then classID = instClassID end
+        if subClassID == nil then subClassID = instSubClassID end
+    end
     itemName = itemName or C.ExtractItemName(itemLink)
     if not itemName then return nil end
 
-    local isContainer = (classID == 1) or (itemType == "Container") or (itemType == "Bag")
-    local isQuiver = (classID == 11) or (itemType == "Quiver")
+    local containerClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Container) or 1
+    local quiverClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Quiver) or 11
+    local isContainer = (classID == containerClassID) or (itemEquipLoc == "INVTYPE_BAG") or (itemType == "Container") or (itemType == "Bag")
+    local isQuiver = (classID == quiverClassID) or (itemType == "Quiver")
     if not isContainer and not isQuiver then
         return nil
     end
@@ -90,26 +100,58 @@ function BR:InspectBagItem(itemLink, itemID, bag, slot)
     local lowSub = string.lower(tostring(itemSubType or ""))
     local bagType = "regular"
 
-    if isQuiver or string.find(lowName, "quiver") or string.find(lowName, "ammo") or string.find(lowName, "bandolier") or string.find(lowSub, "quiver") or string.find(lowSub, "ammo") then
+    -- Check authoritative WoW item class / subclass FIRST so regular bags like
+    -- "Blue Leather Bag", "Red Leather Bag", "Brown Leather Bag" (subClassID == 0)
+    -- are never misclassified as Leatherworking specialty bags.
+    if isQuiver then
         bagType = "quiver"
-    elseif (classID == 1 and subClassID == 11) or string.find(lowName, "reagent") or string.find(lowSub, "reagent") then
-        bagType = "reagent"
-    elseif (classID == 1 and subClassID == 2) or string.find(lowName, "herb") or string.find(lowSub, "herb") then
-        bagType = "herb"
-    elseif (classID == 1 and subClassID == 3) or string.find(lowName, "enchant") or string.find(lowSub, "enchant") then
-        bagType = "enchanting"
-    elseif (classID == 1 and subClassID == 4) or string.find(lowName, "engineer") or string.find(lowSub, "engineer") then
-        bagType = "engineering"
-    elseif (classID == 1 and subClassID == 5) or string.find(lowName, "gem") or string.find(lowSub, "gem") then
-        bagType = "gem"
-    elseif (classID == 1 and subClassID == 6) or string.find(lowName, "mining") or string.find(lowSub, "mining") then
-        bagType = "mining"
-    elseif (classID == 1 and subClassID == 7) or string.find(lowName, "leather") or string.find(lowSub, "leather") then
-        bagType = "leather"
-    elseif (classID == 1 and subClassID == 8) or string.find(lowName, "inscription") or string.find(lowSub, "inscription") then
-        bagType = "inscription"
-    elseif (classID == 1 and subClassID == 1) or string.find(lowName, "soul") or string.find(lowSub, "soul") then
-        bagType = "soul"
+    elseif classID == containerClassID and subClassID ~= nil then
+        if subClassID == 0 then
+            bagType = "regular"
+        elseif subClassID == 1 then
+            bagType = "soul"
+        elseif subClassID == 2 then
+            bagType = "herb"
+        elseif subClassID == 3 then
+            bagType = "enchanting"
+        elseif subClassID == 4 then
+            bagType = "engineering"
+        elseif subClassID == 5 then
+            bagType = "gem"
+        elseif subClassID == 6 then
+            bagType = "mining"
+        elseif subClassID == 7 then
+            bagType = "leather"
+        elseif subClassID == 8 then
+            bagType = "inscription"
+        elseif subClassID == 11 then
+            bagType = "reagent"
+        else
+            bagType = "regular"
+        end
+    else
+        -- Fallback only when subClassID is unavailable; avoid bare "leather" match
+        if string.find(lowName, "quiver") or string.find(lowName, "ammo") or string.find(lowName, "bandolier") or string.find(lowSub, "quiver") or string.find(lowSub, "ammo") then
+            bagType = "quiver"
+        elseif string.find(lowName, "reagent") or string.find(lowSub, "reagent") then
+            bagType = "reagent"
+        elseif string.find(lowName, "herb") or string.find(lowSub, "herb") then
+            bagType = "herb"
+        elseif string.find(lowName, "enchant") or string.find(lowSub, "enchant") then
+            bagType = "enchanting"
+        elseif string.find(lowName, "engineer") or string.find(lowSub, "engineer") then
+            bagType = "engineering"
+        elseif string.find(lowName, "gem") or string.find(lowSub, "gem") then
+            bagType = "gem"
+        elseif string.find(lowName, "mining") or string.find(lowSub, "mining") then
+            bagType = "mining"
+        elseif string.find(lowSub, "leatherworking") or string.find(lowName, "leatherwork") or string.find(lowName, "trapper") or string.find(lowName, "many hides") then
+            bagType = "leather"
+        elseif string.find(lowName, "inscription") or string.find(lowSub, "inscription") then
+            bagType = "inscription"
+        elseif string.find(lowName, "soul") or string.find(lowSub, "soul") then
+            bagType = "soul"
+        end
     end
 
     local slots = ParseSlotCountFromTooltip(bag, slot, itemLink)
