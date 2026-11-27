@@ -1,0 +1,7 @@
+package-as: WOWEngine
+
+ignore:
+  - .github
+  - agent
+  - GEMINI.md
+  - README.md

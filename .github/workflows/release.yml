@@ -14,10 +14,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Package and Upload to CurseForge
+- name: Package and Upload to CurseForge
         uses: BigWigsMods/packager@v2
-        with:
-          args: -t WOWEngine
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
