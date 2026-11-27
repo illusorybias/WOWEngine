@@ -1,0 +1,10 @@
+package-as: WOWEngine
+
+move-folders:
+  WOWEngine/WOWEngine: WOWEngine
+
+ignore:
+  - .github
+  - agent
+  - GEMINI.md
+  - README.md
