@@ -1,5 +1,5 @@
-name: Bug Report / Lua Error
-description: Report a bug or Lua error in WOWEngine, HordeEngine, or AllianceEngine
+name: "Bug Report / Lua Error"
+description: "Report a bug or Lua error in WOWEngine, HordeEngine, or AllianceEngine"
 title: "[Bug]: "
 labels: ["bug", "triage-pending"]
 body:
@@ -11,21 +11,21 @@ body:
   - type: dropdown
     id: client
     attributes:
-      label: World of Warcraft Client
+      label: "World of Warcraft Client"
       options:
-        - WoW Forever (1.60.1 / Interface 16001)
-        - Retail (Midnight / Mainline)
-        - Classic Era / Season of Discovery
-        - The Burning Crusade Classic
-        - Mists of Pandaria Classic
+        - "WoW Forever (1.60.1 / Interface 16001)"
+        - "Retail (Midnight / Mainline)"
+        - "Classic Era / Season of Discovery"
+        - "The Burning Crusade Classic"
+        - "Mists of Pandaria Classic"
     validations:
       required: true
 
   - type: textarea
     id: bugreport
     attributes:
-      label: Paste `/he bugreport` Output & Lua Error Trace
-      description: Paste the full text copied from `/he bugreport` (or BugSack/BugGrabber).
+      label: "Paste /he bugreport Output & Lua Error Trace"
+      description: "Paste the full text copied from /he bugreport (or BugSack/BugGrabber)."
       placeholder: |
         === WOWEngine Diagnostic & Error Report ===
         Addon Version: 1.3.10
@@ -36,7 +36,7 @@ body:
   - type: textarea
     id: repro
     attributes:
-      label: What were you doing when this happened?
-      description: Example: Opened mailbox, clicked Stage Shipment, or clicked Next Alt.
+      label: "What were you doing when this happened?"
+      description: "Example - Opened mailbox, clicked Stage Shipment, or clicked Next Alt."
     validations:
       required: true
