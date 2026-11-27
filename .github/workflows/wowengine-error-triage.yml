@@ -1,0 +1,123 @@
+name: WOWEngine Error-Triage Agent
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Existing GitHub Issue number to triage"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage-and-patch:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action == 'opened' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'triage-pending')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Lua 5.1 compiler for luac -p syntax verification
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      - name: Fetch issue payload (for manual dispatch)
+        id: issue_meta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let issue;
+            if (context.eventName === 'workflow_dispatch') {
+              const num = parseInt('${{ inputs.issue_number }}', 10);
+              const { data } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: num
+              });
+              issue = data;
+            } else {
+              issue = context.payload.issue;
+            }
+            core.setOutput('number', String(issue.number));
+            core.setOutput('title', issue.title || '');
+            core.setOutput('body', issue.body || '');
+
+      - name: Run WOWEngine Error-Triage Agent
+        env:
+          ISSUE_NUMBER: ${{ steps.issue_meta.outputs.number }}
+          ISSUE_TITLE: ${{ steps.issue_meta.outputs.title }}
+          ISSUE_BODY: ${{ steps.issue_meta.outputs.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python3 agent/triage_agent.py
+
+      - name: Create Draft PR and Comment on Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const res = JSON.parse(fs.readFileSync('triage_result.json', 'utf8'));
+            const issueNumber = parseInt(res.issue_number, 10);
+            let commentBody = res.issue_comment;
+
+            if (res.patch_applied && res.modified_files.length > 0) {
+              const branch = `agent/fix-issue-${issueNumber}`;
+              execSync('git config user.name "WOWEngine Triage Agent"');
+              execSync('git config user.email "actions@users.noreply.github.com"');
+              execSync(`git checkout -B "${branch}"`);
+              for (const f of res.modified_files) {
+                execSync(`git add "${f}"`);
+              }
+              execSync(`git commit -m "fix: automated triage patch for #${issueNumber}"`);
+              execSync(`git push --force origin "${branch}"`);
+
+              const prBody = [
+                `Fixes #${issueNumber}`,
+                ``,
+                `**Signature:** \`${res.signature}\``,
+                `**Severity:** \`${res.severity}\``,
+                `**Root Cause:** ${res.root_cause}`,
+                ``,
+                `### Modified Files`,
+                ...res.modified_files.map(f => `- \`${f}\``),
+                ``,
+                `> Validated automatically by \`agent/lua_validator.py\` + \`luac5.1 -p\` (Blizzard TOS compliant). Review and test in-game before merging.`
+              ].join('\n');
+
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: res.pr_title,
+                head: branch,
+                base: context.payload.repository.default_branch || 'main',
+                body: prBody,
+                draft: true
+              });
+
+              commentBody += `\n\n**Draft Pull Request:** #${pr.number} (${pr.html_url})`;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: commentBody
+            });
