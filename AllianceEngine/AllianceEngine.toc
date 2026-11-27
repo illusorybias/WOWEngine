@@ -1,0 +1,14 @@
+## Interface: 16001, 120100, 120007, 110005, 50500, 20504, 11509, 11505
+## Interface-Camelot: 16001
+## Interface-Mainline: 120100
+## Interface-Classic: 11509
+## Interface-BCC: 20504
+## Interface-Mists: 50500
+## Title: |cff00aeffAllianceEngine [v1.3.10 - IllusoryBias]|r
+## Notes: Alliance 26-race/13-class zero-duplicate roster, integrated IllusoryBias branding & routing module.
+## Author: IllusoryBias
+## Version: 1.3.10
+## SavedVariables: AllianceEngineDB
+## OptionalDeps: Altoholic, DataStore, DataStore_Characters, DataStore_Crafts, Mastercraft, Auctionator, Questie, WOWEngine
+
+AllianceEngine.lua

@@ -1,0 +1,23 @@
+## Interface: 16001, 120100, 120007, 110005, 50500, 20504, 11509, 11505
+## Interface-Camelot: 16001
+## Interface-Mainline: 120100
+## Interface-Classic: 11509
+## Interface-BCC: 20504
+## Interface-Mists: 50500
+## Title: |cff00aeffWOWEngine [Core v1.3.10 - IllusoryBias]|r
+## Notes: Multi-version roster, simple onboarding wizard, click-to-add custom item mail routing (Reagent Bag + ClearSendMail), Altoholic/Mastercraft/Auctionator integration & bank sorting by IllusoryBias.
+## Author: IllusoryBias
+## Version: 1.3.10
+## SavedVariables: WOWEngineDB
+## OptionalDeps: Altoholic, DataStore, DataStore_Characters, DataStore_Crafts, Mastercraft, Auctionator, Questie
+## IconTexture: 133633
+## AddonCompartmentFunc: WOWEngine_OnAddonCompartmentClick
+
+Compat.lua
+Core.lua
+RosterScanner.lua
+MailRouter.lua
+BankSorter.lua
+OnboardingUI.lua
+BugReporter.lua
+UI.lua
