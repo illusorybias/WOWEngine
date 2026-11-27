@@ -12,6 +12,8 @@
 ## OptionalDeps: Questie, Altoholic, DataStore, DataStore_Characters, DataStore_Crafts, Mastercraft, Auctionator
 ## IconTexture: 133633
 ## AddonCompartmentFunc: WOWEngine_OnAddonCompartmentClick
+## Version: @v1.6.0@
+## X-Curse-Project-ID: 1834847
 
 Compat.lua
 Core.lua
