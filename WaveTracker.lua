@@ -295,6 +295,34 @@ end
 -- ==========================================
 local dockCbCounter = 0
 
+local function MeasureUnboundedWidth(fs, restoreLeftTarget, restoreRightTarget)
+    if not fs then return 0 end
+    if fs.GetUnboundedStringWidth then
+        local ok, w = pcall(fs.GetUnboundedStringWidth, fs)
+        if ok and type(w) == "number" and w > 0 then
+            return w
+        end
+    end
+    if restoreLeftTarget and restoreRightTarget then
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", restoreLeftTarget, "LEFT", 10, 0)
+        local w = (fs.GetStringWidth and fs:GetStringWidth()) or 0
+        fs:SetPoint("RIGHT", restoreRightTarget, "LEFT", -8, 0)
+        return w
+    end
+    return (fs.GetStringWidth and fs:GetStringWidth()) or 0
+end
+
+local function UpdateQuestieDockWidth(dock)
+    if not dock then return end
+    local minWidth = dock.baseWidth or 248
+    local titleW = MeasureUnboundedWidth(dock.hdrTxt, dock.hdrBtn, dock.toggleTxt)
+    local toggleW = math.max(MeasureUnboundedWidth(dock.toggleTxt), 18)
+    -- 2px left inset + 10px left pad + titleW + 8px clearance + toggleW + 8px right pad + 2px right inset + 4px buffer
+    local neededW = math.ceil(math.max(titleW + 52, titleW + toggleW + 34))
+    dock:SetWidth(math.max(minWidth, neededW))
+end
+
 function WT:AttachQuestieDockPosition()
     local dock = WT.questieDock
     if not dock then return end
@@ -304,15 +332,16 @@ function WT:AttachQuestieDockPosition()
     dock:ClearAllPoints()
 
     if anchorFrame then
-        local w = anchorFrame.GetWidth and anchorFrame:GetWidth() or 240
-        if w < 220 then w = 240 end
-        if w > 320 then w = 300 end
-        dock:SetWidth(w)
+        local w = anchorFrame.GetWidth and anchorFrame:GetWidth() or 248
+        if w < 240 then w = 248 end
+        if w > 320 then w = 320 end
+        dock.baseWidth = w
         dock:SetPoint("BOTTOMRIGHT", anchorFrame, "TOPRIGHT", 0, 4)
     else
-        dock:SetWidth(245)
+        dock.baseWidth = 248
         dock:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -24, -220)
     end
+    UpdateQuestieDockWidth(dock)
 end
 
 function WT:InitQuestieDock()
@@ -338,19 +367,25 @@ function WT:InitQuestieDock()
         hdrBtn:SetPoint("TOPRIGHT", -2, -2)
         hdrBtn:SetHeight(22)
         hdrBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        dock.hdrBtn = hdrBtn
 
         local hdrBg = hdrBtn:CreateTexture(nil, "BACKGROUND")
         hdrBg:SetAllPoints(hdrBtn)
         hdrBg:SetColorTexture(0.06, 0.17, 0.36, 0.92)
 
-        local hdrTxt = hdrBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        hdrTxt:SetPoint("LEFT", 8, 0)
-        hdrTxt:SetJustifyH("LEFT")
-        dock.hdrTxt = hdrTxt
-
         local toggleTxt = hdrBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        toggleTxt:SetPoint("RIGHT", -8, 0)
+        toggleTxt:SetPoint("RIGHT", hdrBtn, "RIGHT", -8, 0)
+        toggleTxt:SetJustifyH("RIGHT")
+        if toggleTxt.SetWordWrap then toggleTxt:SetWordWrap(false) end
         dock.toggleTxt = toggleTxt
+
+        local hdrTxt = hdrBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        hdrTxt:SetPoint("LEFT", hdrBtn, "LEFT", 10, 0)
+        hdrTxt:SetPoint("RIGHT", toggleTxt, "LEFT", -8, 0)
+        hdrTxt:SetJustifyH("LEFT")
+        if hdrTxt.SetWordWrap then hdrTxt:SetWordWrap(false) end
+        if hdrTxt.SetMaxLines then hdrTxt:SetMaxLines(1) end
+        dock.hdrTxt = hdrTxt
 
         hdrBtn:SetScript("OnClick", function(self, btn)
             if btn == "RightButton" then
@@ -455,6 +490,7 @@ function WT:RefreshQuestieDock()
     dock.hdrTxt:SetText(string.format("|cff00aeffWOWEngine|r |cffffd100Wave %d|r (Lv%d/%d | %d/%d Alts)",
         waveIdx, pLevel, targetLevel, #ready, #ready + #behind))
     dock.toggleTxt:SetText(collapsed and "|cffffd100[+]|r" or "|cffaaaaaa[-]|r")
+    UpdateQuestieDockWidth(dock)
 
     if collapsed then
         dock.body:Hide()
