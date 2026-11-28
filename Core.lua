@@ -186,6 +186,7 @@ function NS:EnsureDB()
     if WOWEngineDB.multiAltMode == nil then WOWEngineDB.multiAltMode = "roundrobin" end
     if WOWEngineDB.mastercraftPriority == nil then WOWEngineDB.mastercraftPriority = "leveling" end
     if WOWEngineDB.keepOwnCategoryMats == nil then WOWEngineDB.keepOwnCategoryMats = true end
+    if WOWEngineDB.mailEquippableDisenchantableBoEs == nil then WOWEngineDB.mailEquippableDisenchantableBoEs = true end
 
     WOWEngineDB.routingRules = nil
 

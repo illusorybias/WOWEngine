@@ -7,7 +7,7 @@ PNB.frame = nil
 PNB.ticker = nil
 PNB.lastRoastIdx = 0
 PNB.lastDismissIdx = 0
-PNB.NAG_INTERVAL = 600     -- 10 minutes
+PNB.NAG_INTERVAL = 120     -- 2 minutes (initial trigger & repeating chat fallback interval)
 PNB.SNOOZE_SECONDS = 900   -- 15 minutes
 PNB.MUTE_24H_SECONDS = 86400 -- 24 hours
 
@@ -43,7 +43,7 @@ PNB.ROASTS = {
     "Not spending your points is bold—almost as bold as pulling Aggro before the tank lands a Sunder.",
     "The Spirit Healer wants to thank you personally for keeping her business booming.",
     "News flash: unspent points do not unlock the secret cow level.",
-    "You've been holding those points for 10 minutes. Did your mouse run out of mana?",
+    "You've been holding those points for 2 minutes. Did your mouse run out of mana?",
     "Your spellbook called—it's worried you forgot how buttons work.",
     "Leaving points unspent is like bringing Rank 1 Frostbolt to Molten Core.",
     "At this rate, the Zeppelins will arrive on time before you spend a single point.",
@@ -79,12 +79,12 @@ PNB.ROASTS = {
     "Even a Druid stuck in travel form gets to their talents faster than this.",
     "You're one unspent point away from getting out-DPS'd by a Battle Chicken.",
     "If this were a Raid Ready Check, your talent tree would have clicked 'Not Ready.'",
-    "Ten whole minutes! You could have run across the entire Barrens in that time—almost.",
+    "Two whole minutes! You could have run halfway across the Barrens in that time—almost.",
     "The Lich King isn't worried about your threat meter while those points stay unspent.",
     "Your class trainer is shaking their head from across the capital city.",
     "Don't make me summon a Warlock closet just to drag you to your talent tree.",
     "You're saving those points so hard a Goblin in Booty Bay wants to hire you as an accountant.",
-    "Check your pulse AND your talent tree—one of them clearly hasn't moved in 10 minutes.",
+    "Check your pulse AND your talent tree—one of them clearly hasn't moved in 2 minutes.",
     "Every time you ignore unspent points, an Engineer's Goblin Jumper Cables fail to rez.",
     "You've got unspent points glowing brighter than a Tier 2 Paladin in Ironforge.",
     "Are you waiting for a 50% off sale on talent points? Because they're already free.",
@@ -92,12 +92,12 @@ PNB.ROASTS = {
     "Fun fact: spending points increases survival rates against sudden Fel Reaver footsteps.",
     "Your party thinks you're AFK-inspecting gear; little do they know you're hoarding talent points.",
     "A Level 1 Boar in Durotar just looked at your build and felt pretty confident.",
-    "Remember that time you forgot to spend your points for 10 minutes? Oh wait, that's right now.",
+    "Remember that time you forgot to spend your points for 2 minutes? Oh wait, that's right now.",
     "Your talents have more unfulfilled potential than a Shaman begging for a 2H Windfury proc.",
     "Spend your points now and receive a 100% free upgrade from 'Noob' to 'Slightly Less Noob.'",
     "Not spending points is technically a pacifist run, right?",
     "Your keyboard has an 'N' key. It misses you. Give it a quick tap.",
-    "Ten minutes with unspent points—at this pace, Ahn'Qiraj gates will open twice first.",
+    "Two minutes with unspent points—at this pace, Ahn'Qiraj gates will open twice first.",
     "Even a Priest out of mana has more active output than those unspent points.",
     "Warning: prolonged exposure to unspent points may result in getting roasted by your guild.",
     "You've been sitting on those points so long they're about to hatch into Onyxia whelps.",
@@ -107,7 +107,7 @@ PNB.ROASTS = {
     "The Innkeeper says you're well-rested, so you have zero excuses for those unspent points.",
     "If hesitation dealt damage, you'd be top of the meter right now.",
     "Your talent tree just sent an in-game mail titled: 'Hello? Anybody home?'",
-    "Ten minutes without spending points—bold of you to handicap yourself for the content.",
+    "Two minutes without spending points—bold of you to handicap yourself for the content.",
     "Even a freshly tamed Hunter pet remembers to spend its points faster than this.",
     "Open the talent panel, pick a shiny icon, and pretend this friendly roast never happened.",
     "You have unspent points! Spend them before someone screenshots your build for guild Discord.",
@@ -419,7 +419,7 @@ function PNB:EnsureBanner()
         f:Hide()
         local reply = PickDismissReply()
         if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff2020[WOWEngine]|r |cffffd100" .. reply .. "|r |cff00aeff(Banner muted 24h — chat reminders continue every 10m; type /he nag off to silence chat too)|r")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff2020[WOWEngine]|r |cffffd100" .. reply .. "|r |cff00aeff(Banner muted 24h — chat reminders continue every 2 minutes; type /he nag off to silence chat too)|r")
         else
             NS:Print(reply)
         end
@@ -436,7 +436,7 @@ function PNB:EnsureBanner()
         f:Hide()
         local reply = PickDismissReply()
         if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff2020[WOWEngine]|r |cffffd100" .. reply .. "|r |cff00aeff(Banner permanently disabled — chat reminders continue every 10m; type /he nag off to silence chat too)|r")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff2020[WOWEngine]|r |cffffd100" .. reply .. "|r |cff00aeff(Banner permanently disabled — chat reminders continue every 2 minutes; type /he nag off to silence chat too)|r")
         else
             NS:Print(reply)
         end
@@ -525,7 +525,7 @@ function PNB:HandleSlashCommand(arg)
         db.chatMuted = false
         charState.snoozeUntil = 0
         charState.lastWarnAt = 0
-        NS:Print("|cff00ff00Point Nag Banner & chat reminders re-enabled!|r (10-minute unspent point watchdog active)")
+        NS:Print("|cff00ff00Point Nag Banner & chat reminders re-enabled!|r (2-minute unspent point watchdog active)")
         pcall(function() PNB:CheckUnspentPoints() end)
     else
         local now = time and time() or 0

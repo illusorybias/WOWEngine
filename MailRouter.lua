@@ -56,8 +56,11 @@ function MR:IsSoulboundOrQuest(bag, slot, isBoundFlag)
         local left = _G["WOWEngineScanTooltipTextLeft" .. i]
         if left then
             local text = left:GetText()
-            if text and (text == ITEM_SOULBOUND or text == ITEM_BIND_ON_PICKUP or text == ITEM_BIND_QUEST or text == ITEM_CONJURED) then
-                return true
+            if text and not C.IsSecret(text) then
+                if text == ITEM_SOULBOUND or text == ITEM_BIND_ON_PICKUP or text == ITEM_BIND_QUEST or text == ITEM_CONJURED
+                    or string.find(text, "Soulbound") or string.find(text, "Quest Item") or string.find(text, "Warbound") then
+                    return true
+                end
             end
         end
     end
@@ -78,9 +81,15 @@ function MR:IsHardProtected(itemID, itemLink, bag, slot, isLocked, isBoundFlag)
         return true, "soulbound"
     end
 
-    if itemLink then
-        local _, _, _, _, _, _, _, _, _, _, _, _, _, bindType = C.GetItemInfo(itemLink)
-        if bindType == 1 or bindType == 4 then
+    if itemLink or itemID then
+        local questClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Questitem) or 12
+        local _, _, _, _, _, itemType, _, _, _, _, _, classID, _, bindType = C.GetItemInfo(itemLink or itemID)
+        if classID == nil then
+            local _, instType, _, _, _, instClassID = C.GetItemInfoInstant(itemLink or itemID)
+            itemType = itemType or instType
+            classID = instClassID
+        end
+        if bindType == 1 or bindType == 4 or classID == questClassID or itemType == "Quest" then
             return true, "soulbound"
         end
     end
@@ -171,7 +180,109 @@ local function IsBagOrContainerItem(classID, itemEquipLoc, itemType)
     return false
 end
 
-function MR:ResolveCategoryForItem(itemLink, itemID)
+local LINK_COLOR_QUALITY = {
+    ["9d9d9d"] = 0, -- Poor (Grey)
+    ["ffffff"] = 1, -- Common (White)
+    ["1eff00"] = 2, -- Uncommon (Green)
+    ["0070dd"] = 3, -- Rare (Blue)
+    ["a335ee"] = 4, -- Epic (Purple)
+    ["ff8000"] = 5, -- Legendary
+}
+
+local function InferQualityFromLink(itemLink)
+    if type(itemLink) ~= "string" then return nil end
+    local hex = string.match(itemLink, "|cff(%x%x%x%x%x%x)")
+    if hex then
+        return LINK_COLOR_QUALITY[string.lower(hex)]
+    end
+    return nil
+end
+
+function MR:IsMailEquippableDisenchantableBoEsEnabled()
+    if WOWEngineDB and WOWEngineDB.mailEquippableDisenchantableBoEs == false then
+        return false
+    end
+    return true
+end
+
+local function IsRedTooltipColor(r, g, b)
+    if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+        return false
+    end
+    return (r > 0.85 and g < 0.25 and b < 0.25)
+end
+
+-- Nil-safe check for whether a BoE armor/weapon in (bag, slot) can be equipped by the current character.
+-- ONLY consulted when WOWEngineDB.mailEquippableDisenchantableBoEs == false.
+function MR:IsBoEEquippableByCurrentPlayer(bag, slot, itemLink, itemID)
+    local target = itemLink or itemID
+    if not target then return false end
+
+    -- 1. Verify item is an equippable type
+    if C_Item and C_Item.IsEquippableItem then
+        local ok, eq = pcall(C_Item.IsEquippableItem, target)
+        if ok and eq == false then return false end
+    elseif IsEquippableItem then
+        local ok, eq = pcall(IsEquippableItem, target)
+        if ok and eq == false then return false end
+    end
+
+    -- 2. Scan tooltip for red restriction lines (unlearned armor/weapon proficiency, wrong class, level req)
+    if bag ~= nil and slot ~= nil then
+        if C_TooltipInfo and C_TooltipInfo.GetBagItem then
+            local okT, tipData = pcall(C_TooltipInfo.GetBagItem, bag, slot)
+            if okT and tipData and tipData.lines then
+                for i, line in ipairs(tipData.lines) do
+                    if i >= 2 then
+                        local lc = line.leftColor
+                        local rc = line.rightColor
+                        if lc and IsRedTooltipColor(lc.r, lc.g, lc.b) then
+                            return false
+                        end
+                        if rc and IsRedTooltipColor(rc.r, rc.g, rc.b) then
+                            return false
+                        end
+                    end
+                end
+            end
+        else
+            local tip = GetScanTooltip()
+            tip:ClearLines()
+            pcall(tip.SetBagItem, tip, bag, slot)
+            for i = 2, tip:NumLines() do
+                local left = _G["WOWEngineScanTooltipTextLeft" .. i]
+                if left and left.GetTextColor then
+                    local t = left:GetText()
+                    if t and t ~= "" and not C.IsSecret(t) then
+                        local r, g, b = left:GetTextColor()
+                        if IsRedTooltipColor(r, g, b) then return false end
+                    end
+                end
+                local right = _G["WOWEngineScanTooltipTextRight" .. i]
+                if right and right.GetTextColor then
+                    local t = right:GetText()
+                    if t and t ~= "" and not C.IsSecret(t) then
+                        local r, g, b = right:GetTextColor()
+                        if IsRedTooltipColor(r, g, b) then return false end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 3. Cross-client nil-safe usability check
+    if C_Item and C_Item.IsUsableItem then
+        local ok, usable = pcall(C_Item.IsUsableItem, target)
+        if ok and usable == false then return false end
+    elseif IsUsableItem then
+        local ok, usable = pcall(IsUsableItem, target)
+        if ok and usable == false then return false end
+    end
+
+    return true
+end
+
+function MR:ResolveCategoryForItem(itemLink, itemID, bagQuality, bag, slot)
     if not itemLink then return nil, nil end
     local itemName, _, quality, _, _, itemType, itemSubType, _, itemEquipLoc, _, _, classID, subClassID = C.GetItemInfo(itemLink)
     if classID == nil or itemEquipLoc == nil or itemEquipLoc == "" then
@@ -182,6 +293,7 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
         if classID == nil then classID = instClassID end
         if subClassID == nil then subClassID = instSubClassID end
     end
+    quality = tonumber(quality) or tonumber(bagQuality) or InferQualityFromLink(itemLink)
     if not itemName then
         if itemID then C.RequestLoadItemDataByID(itemID) end
         itemName = C.ExtractItemName(itemLink)
@@ -190,11 +302,40 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
         end
     end
 
-    -- Check actual WoW Container / Bag class and equip location FIRST —
+    -- Check actual WoW Container / Bag / Quiver class and equip location FIRST —
     -- BEFORE any item-name keyword matching ("leather", "linen", "wool", "silk", etc.)
     -- so items like "Blue Leather Bag" are always classified as Bags/Containers.
     if IsBagOrContainerItem(classID, itemEquipLoc, itemType) then
         return "Bags", itemName
+    end
+
+    -- Check Armor & Weapons BEFORE trade-good name matching so BoE gear like
+    -- "Rigid Leather Belt", "Linen Boots", "Jade Sword", or "Scale Bracers" is NEVER
+    -- hijacked as Leather/Cloth/Ore.
+    -- Applies to ALL disenchantable BoE items: Uncommon (2), Rare (3), and Epic (4)
+    -- Armor/Weapons (excluding Shirts, Tabards, Bags/Quivers/Ammo Pouches).
+    local weaponClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Weapon) or 2
+    local armorClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Armor) or 4
+    local isArmorOrWeapon = (classID == weaponClassID or classID == armorClassID or itemType == "Armor" or itemType == "Weapon")
+    if isArmorOrWeapon then
+        if quality and (quality >= 2 and quality <= 4) then
+            -- Exclude non-disenchantable equip slots (Shirts, Tabards, Bags, Ammo)
+            if itemEquipLoc ~= "INVTYPE_BODY" and itemEquipLoc ~= "INVTYPE_TABARD"
+                and itemEquipLoc ~= "INVTYPE_BAG" and itemEquipLoc ~= "INVTYPE_AMMO" then
+                if not MR:IsMailEquippableDisenchantableBoEsEnabled()
+                    and MR:IsBoEEquippableByCurrentPlayer(bag, slot, itemLink, itemID) then
+                    return "__SKIP_EQUIPPABLE_BOE__", itemName
+                end
+                local deTargets = NS.Roster:GetCategoryTargets("DisenchantBoE")
+                if type(deTargets) == "table" and #deTargets > 0 then
+                    return "DisenchantBoE", itemName
+                end
+                if IsBankAltEnabled() then
+                    return "BankAlt", itemName
+                end
+            end
+        end
+        return nil, itemName
     end
 
     if classID == 7 then -- Tradeskill / Trade Goods
@@ -222,20 +363,6 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
 
     local cat = ClassifyTradeGoodByName(itemName)
     if cat then return cat, itemName end
-
-    -- Tradeable Uncommon/Rare/Epic Armor & Weapons (BoEs) -> Enchanter DisenchantBoE if configured, else BankAlt (if enabled)
-    if quality and (quality >= 2 and quality <= 4) and (classID == 2 or classID == 4 or itemType == "Armor" or itemType == "Weapon") then
-        -- Exclude shirts (INVTYPE_BODY) and tabards (INVTYPE_TABARD) which cannot be disenchanted
-        if itemEquipLoc ~= "INVTYPE_BODY" and itemEquipLoc ~= "INVTYPE_TABARD" then
-            local deTargets = NS.Roster:GetCategoryTargets("DisenchantBoE")
-            if type(deTargets) == "table" and #deTargets > 0 then
-                return "DisenchantBoE", itemName
-            end
-            if IsBankAltEnabled() then
-                return "BankAlt", itemName
-            end
-        end
-    end
 
     return nil, itemName
 end
@@ -818,7 +945,7 @@ function MR:BuildShipmentPlan(forcedTarget)
     for bag = 0, maxBags do
         local numSlots = C.GetContainerNumSlots(bag)
         for slot = 1, numSlots do
-            local _, _, isLocked, _, link, itemID, isBound = C.GetContainerItemDetails(bag, slot)
+            local _, _, isLocked, bagQuality, link, itemID, isBound = C.GetContainerItemDetails(bag, slot)
             if not link then
                 link = C.GetContainerItemLink(bag, slot)
             end
@@ -830,11 +957,14 @@ function MR:BuildShipmentPlan(forcedTarget)
                     stats.skippedBound = stats.skippedBound + 1
                 else
                     local dest = nil
-                    local cat, itemName = MR:ResolveCategoryForItem(link, itemID)
+                    local cat, itemName = MR:ResolveCategoryForItem(link, itemID, bagQuality, bag, slot)
                     local cleanName = itemName or C.ExtractItemName(link)
                     local routeLabel = cat
 
-                    if forcedTarget then
+                    if cat == "__SKIP_EQUIPPABLE_BOE__" then
+                        -- User disabled "Include Equippable Disenchantable BoEs in Mailer": keep equippable BoE in bags
+                        stats.keptForSelf = stats.keptForSelf + 1
+                    elseif forcedTarget then
                         local addonHeld = MR:IsAddonHoldProtected(itemID)
                         if addonHeld then
                             stats.skippedMC = stats.skippedMC + 1
@@ -1131,13 +1261,13 @@ function MR:StageBoEsOnly()
         local numSlots = C.GetContainerNumSlots(bag)
         for slot = 1, numSlots do
             if staged >= maxAttach then break end
-            local _, _, isLocked, _, link, itemID, isBound = C.GetContainerItemDetails(bag, slot)
+            local _, _, isLocked, bagQuality, link, itemID, isBound = C.GetContainerItemDetails(bag, slot)
             if not link then link = C.GetContainerItemLink(bag, slot) end
             if link then
                 itemID = itemID or C.ExtractItemID(link)
                 local hardProt = MR:IsHardProtected(itemID, link, bag, slot, isLocked, isBound)
                 if not hardProt then
-                    local cat = MR:ResolveCategoryForItem(link, itemID)
+                    local cat = MR:ResolveCategoryForItem(link, itemID, bagQuality, bag, slot)
                     if cat == "DisenchantBoE" or cat == "BankAlt" then
                         local emptySlot = FindFirstEmptyMailSlot(maxAttach)
                         if not emptySlot then break end

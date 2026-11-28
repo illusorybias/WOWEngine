@@ -4,7 +4,7 @@ local SP = NS.SettingsPanel
 
 local spCbCounter = 0
 
-local function CreateOptCheckbox(parent, label, getVal, setVal)
+local function CreateOptCheckbox(parent, label, getVal, setVal, tooltipText)
     spCbCounter = spCbCounter + 1
     local cbName = "WOWEngineOptCB" .. spCbCounter
     local cb = CreateFrame("CheckButton", cbName, parent, "UICheckButtonTemplate")
@@ -15,6 +15,19 @@ local function CreateOptCheckbox(parent, label, getVal, setVal)
     local txt = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     txt:SetPoint("LEFT", cb, "RIGHT", 6, 0)
     txt:SetText(label)
+
+    if tooltipText then
+        cb:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(label, 1.0, 0.85, 0.1)
+            GameTooltip:AddLine(tooltipText, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        cb:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+    end
 
     cb:SetScript("OnClick", function(self)
         pcall(function()
@@ -170,10 +183,16 @@ function SP:Init()
         function(v) WOWEngineDB.protectAuctionatorPosted = v end)
     cbAuc:SetPoint("TOPLEFT", cbMC, "BOTTOMLEFT", 0, -2)
 
+    local cbMailEqBoE = CreateOptCheckbox(panel, "Include Equippable Disenchantable BoEs in Mailer",
+        function() return not (WOWEngineDB and WOWEngineDB.mailEquippableDisenchantableBoEs == false) end,
+        function(v) WOWEngineDB.mailEquippableDisenchantableBoEs = v end,
+        "When enabled, all disenchantable BoE gear (Uncommon, Rare, and Epic armor/weapons) is routed to your Enchanter/Bank Alt even if your current character can equip it. When disabled, BoEs equippable by the current character are skipped.")
+    cbMailEqBoE:SetPoint("TOPLEFT", cbAuc, "BOTTOMLEFT", 0, -2)
+
     -- Quick Mode Toggle Buttons
     local bMultiMode = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     bMultiMode:SetSize(215, 22)
-    bMultiMode:SetPoint("TOPLEFT", cbAuc, "BOTTOMLEFT", 0, -8)
+    bMultiMode:SetPoint("TOPLEFT", cbMailEqBoE, "BOTTOMLEFT", 0, -8)
 
     local bMcMode = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     bMcMode:SetSize(215, 22)
@@ -238,6 +257,7 @@ function SP:Init()
         cbKeepOwn:Refresh()
         cbMC:Refresh()
         cbAuc:Refresh()
+        cbMailEqBoE:Refresh()
         RefreshModeButtons()
         RefreshReqStatus()
     end)

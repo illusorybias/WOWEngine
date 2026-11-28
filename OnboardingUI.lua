@@ -68,7 +68,7 @@ local function CreateActionButton(parent, width, height, text, onClick)
     return b
 end
 
-local function CreateCheckbox(parent, label, getVal, setVal)
+local function CreateCheckbox(parent, label, getVal, setVal, tooltipText)
     cbCounter = cbCounter + 1
     local cbName = "WOWEngineOnboardCB" .. cbCounter
     local cb = CreateFrame("CheckButton", cbName, parent, "UICheckButtonTemplate")
@@ -83,6 +83,19 @@ local function CreateCheckbox(parent, label, getVal, setVal)
     txt:SetPoint("LEFT", cb, "RIGHT", 4, 0)
     txt:SetText(label)
     cb.labelText = txt
+
+    if tooltipText then
+        cb:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(label, 1.0, 0.85, 0.1)
+            GameTooltip:AddLine(tooltipText, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        cb:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+    end
 
     cb:SetScript("OnClick", function(self)
         local ok, err = pcall(function()
@@ -1185,26 +1198,33 @@ function OB:BuildFrame()
             WOWEngineDB.syncAltoholic = v
             if v then NS.Roster:ScanAll(true) end
         end)
-    cbAlto:SetPoint("TOPLEFT", 14, -206)
+    cbAlto:SetPoint("TOPLEFT", 14, -196)
     p4.cbAlto = cbAlto
 
     local cbMC = CreateCheckbox(p4, "Protect reagents queued in Mastercraft from being mailed",
         function() return WOWEngineDB.protectMastercraftQueue end,
         function(v) WOWEngineDB.protectMastercraftQueue = v end)
-    cbMC:SetPoint("TOPLEFT", cbAlto, "BOTTOMLEFT", 0, -5)
+    cbMC:SetPoint("TOPLEFT", cbAlto, "BOTTOMLEFT", 0, -2)
     p4.cbMC = cbMC
 
     local cbAuc = CreateCheckbox(p4, "Protect items flagged by Auctionator holds",
         function() return WOWEngineDB.protectAuctionatorPosted end,
         function(v) WOWEngineDB.protectAuctionatorPosted = v end)
-    cbAuc:SetPoint("TOPLEFT", cbMC, "BOTTOMLEFT", 0, -5)
+    cbAuc:SetPoint("TOPLEFT", cbMC, "BOTTOMLEFT", 0, -2)
     p4.cbAuc = cbAuc
 
     local cbKeepOwn = CreateCheckbox(p4, "Keep mats on this character if it is assigned to that category",
         function() return WOWEngineDB.keepOwnCategoryMats end,
         function(v) WOWEngineDB.keepOwnCategoryMats = v end)
-    cbKeepOwn:SetPoint("TOPLEFT", cbAuc, "BOTTOMLEFT", 0, -5)
+    cbKeepOwn:SetPoint("TOPLEFT", cbAuc, "BOTTOMLEFT", 0, -2)
     p4.cbKeepOwn = cbKeepOwn
+
+    local cbMailEqBoE = CreateCheckbox(p4, "Include Equippable Disenchantable BoEs in Mailer",
+        function() return not (WOWEngineDB and WOWEngineDB.mailEquippableDisenchantableBoEs == false) end,
+        function(v) WOWEngineDB.mailEquippableDisenchantableBoEs = v end,
+        "When enabled, all disenchantable BoE gear (Uncommon, Rare, and Epic armor/weapons) is routed to your Enchanter/Bank Alt even if your current character can equip it. When disabled, BoEs equippable by the current character are skipped.")
+    cbMailEqBoE:SetPoint("TOPLEFT", cbKeepOwn, "BOTTOMLEFT", 0, -2)
+    p4.cbMailEqBoE = cbMailEqBoE
 
     local p4SyncBtn = CreateActionButton(p4, 195, 24, "Sync Altoholic & Re-Check", function()
         local added = NS.Roster:ScanAltoholic()
@@ -1212,7 +1232,7 @@ function OB:BuildFrame()
         NS:Print("Altoholic/DataStore sync complete (" .. tostring(added) .. " new alts imported).")
         OB:RefreshCurrentStep()
     end)
-    p4SyncBtn:SetPoint("TOPLEFT", cbKeepOwn, "BOTTOMLEFT", 0, -12)
+    p4SyncBtn:SetPoint("TOPLEFT", cbMailEqBoE, "BOTTOMLEFT", 0, -8)
 
     local p4ModeBtn = CreateActionButton(p4, 215, 24, "Multi-Alt: Round-Robin", function()
         if WOWEngineDB.multiAltMode == "roundrobin" then
@@ -1546,6 +1566,7 @@ function OB:RefreshCurrentStep()
         p4.cbMC:Refresh()
         p4.cbAuc:Refresh()
         p4.cbKeepOwn:Refresh()
+        if p4.cbMailEqBoE then p4.cbMailEqBoE:Refresh() end
         if WOWEngineDB.multiAltMode == "roundrobin" then
             p4.modeBtn:SetText("Multi-Alt: Round-Robin (Split)")
         else

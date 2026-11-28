@@ -134,16 +134,15 @@ TA.BUILDS = {
             priority = "Ranged Hit Cap (8%) > Agility > Attack Power > Crit > Intellect",
             caps = { meleeHit = 8, critTarget = 22 },
             order = {
-                -- Row 1 & Row 2: 10 legal points before Row 3 (WoW Forever 16001 BM — no deprecated Thick Hide / Imp. Eyes)
-                { 1, "Deadly Aspects", 5 }, { 1, "Endurance Training", 2 },
-                { 1, "Focused Fire", 2 }, { 1, "Improved Revive Pet", 1 },
-                -- Row 3+ (unlocked at 10+ pts in Tab 1)
-                { 1, "Bestial Swiftness", 1 }, { 1, "Pathfinding", 2 }, { 1, "Unleashed Fury", 5 },
+                -- Tab 1 Beast Mastery (31 pts): 10 legal points in Rows 1-2 before Row 3 (WoW Forever 16001)
+                { 1, "Endurance Training", 5 }, { 1, "Focused Fire", 2 }, { 1, "Improved Aspect of the Monkey", 3 },
+                -- Row 3+ (unlocked at 10+ pts in BM)
+                { 1, "Pathfinding", 2 }, { 1, "Bestial Swiftness", 1 }, { 1, "Unleashed Fury", 5 },
                 { 1, "Ferocity", 5 }, { 1, "Intimidation", 1 },
                 { 1, "Bestial Discipline", 2 }, { 1, "Frenzy", 4 }, { 1, "Bestial Wrath", 1 },
-                -- Tab 2 Marksmanship (20 pts: 15 pts in Rows 1-3 before Row 4 Mortal Shots)
-                { 2, "Efficiency", 5 }, { 2, "Lethal Shots", 5 }, { 2, "Aimed Shot", 1 },
-                { 2, "Hawk Eye", 3 }, { 2, "Improved Concussive Shot", 1 }, { 2, "Mortal Shots", 5 },
+                -- Tab 2 Marksmanship (20 pts): Row 1 Lethal Attacks (5/5) before Row 2 Efficiency & Careful Aim
+                { 2, "Lethal Attacks", 5 }, { 2, "Efficiency", 5 }, { 2, "Careful Aim", 5 },
+                { 2, "Trueshot Aura", 1 }, { 2, "Mortal Shots", 4 },
             },
         },
         {
@@ -152,9 +151,16 @@ TA.BUILDS = {
             priority = "Ranged Hit Cap (8%) > Agility > Crit > Attack Power",
             caps = { meleeHit = 8, critTarget = 25 },
             order = {
-                { 2, "Efficiency", 5 }, { 2, "Lethal Shots", 5 }, { 2, "Aimed Shot", 1 },
-                { 2, "Mortal Shots", 5 }, { 2, "Barrage", 3 }, { 2, "Ranged Weapon Specialization", 5 },
-                { 2, "Trueshot Aura", 1 }, { 3, "Monster Slaying", 3 }, { 3, "Surefooted", 3 },
+                -- Tab 2 Marksmanship (31 pts): Row 1 Lethal Attacks (5/5) before Row 2 Efficiency & Careful Aim
+                { 2, "Lethal Attacks", 5 }, { 2, "Efficiency", 5 }, { 2, "Careful Aim", 5 },
+                { 2, "Trueshot Aura", 1 }, { 2, "Mortal Shots", 5 },
+                { 2, "Barrage", 3 }, { 2, "Scatter Shot", 1 },
+                { 2, "Ranged Weapon Specialization", 5 }, { 2, "Sniper Shot", 1 },
+                -- Tab 3 Survival (18 pts): Row 1 Improved Tracking (5/5) before Row 2+
+                { 3, "Improved Tracking", 5 }, { 3, "Entrapment", 5 },
+                { 3, "Survivalist", 5 }, { 3, "Surefooted", 3 },
+                -- Tab 1 Beast Mastery (2 pts)
+                { 1, "Endurance Training", 2 },
             },
         },
         {
@@ -163,8 +169,12 @@ TA.BUILDS = {
             priority = "PvP Hit (5%) > Stamina > Agility > Crit",
             caps = { meleeHit = 5, critTarget = 22 },
             order = {
-                { 2, "Lethal Shots", 5 }, { 2, "Aimed Shot", 1 }, { 2, "Scatter Shot", 1 },
-                { 2, "Mortal Shots", 5 }, { 3, "Entrapment", 5 }, { 3, "Surefooted", 3 },
+                -- Tab 2 Marksmanship (21 pts): Row 1 Lethal Attacks (5/5) before Row 2+
+                { 2, "Lethal Attacks", 5 }, { 2, "Efficiency", 5 }, { 2, "Careful Aim", 5 },
+                { 2, "Mortal Shots", 5 }, { 2, "Scatter Shot", 1 },
+                -- Tab 3 Survival (22 pts): Row 1 Deflection (5/5) before Row 2+
+                { 3, "Deflection", 5 }, { 3, "Entrapment", 5 }, { 3, "Improved Wing Clip", 3 },
+                { 3, "Survivalist", 5 }, { 3, "Surefooted", 3 }, { 3, "Deterrence", 1 },
             },
         },
     },
@@ -244,10 +254,22 @@ TA.BUILDS = {
             priority = "Melee Hit Cap (8% Special) > Weapon Skill > Agility > Crit > Attack Power",
             caps = { meleeHit = 8, critTarget = 24 },
             order = {
-                { 2, "Improved Sinister Strike", 2 }, { 2, "Lightning Reflexes", 3 }, { 2, "Precision", 5 },
-                { 2, "Deflection", 5 }, { 2, "Riposte", 1 }, { 2, "Dual Wield Specialization", 5 },
-                { 2, "Blade Flurry", 1 }, { 2, "Sword Specialization", 5 }, { 2, "Weapon Expertise", 2 },
-                { 2, "Adrenaline Rush", 1 }, { 1, "Malice", 5 }, { 1, "Lethality", 5 },
+                -- Tab 2 Combat (35 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (5 pts -> unlocks Row 2)
+                { 2, "Efficient Strikes", 2 }, { 2, "Coup de Grace", 3 },
+                -- Row 2 (6 pts -> 11 total, unlocks Row 3)
+                { 2, "Deflection", 3 }, { 2, "Precision", 3 },
+                -- Row 3 (4 pts -> 15 total, unlocks Row 4)
+                { 2, "Riposte", 1 }, { 2, "Endurance", 2 }, { 2, "Composure", 1 },
+                -- Row 4 (6 pts -> 21 total, unlocks Row 5)
+                { 2, "Weapon Expertise", 2 }, { 2, "Aggression", 3 }, { 2, "Flawless Execution", 1 },
+                -- Row 5 (8 pts -> 29 total, unlocks Row 6)
+                { 2, "Dual Wield Specialization", 2 }, { 2, "Blade Flurry", 1 }, { 2, "Hack and Slash", 5 },
+                -- Row 6 (5 pts -> 34 total, unlocks Row 7) & Row 7 (1 pt -> 35 total)
+                { 2, "Flash of Steel", 5 }, { 2, "Adrenaline Rush", 1 },
+                -- Tab 1 Assassination (13 pts): Row 1 Malice (5/5) before Row 2 & Row 3
+                { 1, "Malice", 5 }, { 1, "Ruthlessness", 3 }, { 1, "Improved Slice and Dice", 3 },
+                { 1, "Lethality", 2 },
             },
         },
         {
@@ -256,9 +278,20 @@ TA.BUILDS = {
             priority = "PvP Hit (5%) > Stamina > Agility > Crit > Attack Power",
             caps = { meleeHit = 5, critTarget = 22 },
             order = {
-                { 3, "Master of Deception", 5 }, { 3, "Camouflage", 5 }, { 3, "Elusiveness", 2 },
-                { 3, "Ghostly Strike", 1 }, { 3, "Hemorrhage", 1 }, { 3, "Preparation", 1 },
-                { 1, "Malice", 5 }, { 1, "Cold Blood", 1 },
+                -- Tab 3 Subtlety (25 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (8 pts -> unlocks Row 2)
+                { 3, "Master of Deception", 3 }, { 3, "Opportunity", 3 }, { 3, "Setup", 2 },
+                -- Row 2 (5 pts -> 13 total, unlocks Row 3)
+                { 3, "Camouflage", 3 }, { 3, "Dirty Deeds", 2 },
+                -- Row 3 (7 pts -> 20 total, unlocks Row 4 & Row 5)
+                { 3, "Initiative", 3 }, { 3, "Serrated Blades", 3 }, { 3, "Premeditation", 1 },
+                -- Row 4 (3 pts -> 23 total)
+                { 3, "Elusiveness", 2 }, { 3, "Ghostly Strike", 1 },
+                -- Row 5 (2 pts -> 25 total)
+                { 3, "Preparation", 1 }, { 3, "Hemorrhage", 1 },
+                -- Tab 1 Assassination (16 pts): Row 1 Malice (5/5) before Row 2-4
+                { 1, "Malice", 5 }, { 1, "Ruthlessness", 3 }, { 1, "Improved Slice and Dice", 3 },
+                { 1, "Murder", 2 }, { 1, "Lethality", 2 }, { 1, "Cold Blood", 1 },
             },
         },
     },
@@ -779,6 +812,188 @@ local function IsModernNodeUnlocked(configID, nodeInfo)
     return true
 end
 
+local function ClusterSortedCoords(vals, tol)
+    local centers = {}
+    if #vals == 0 then return centers end
+    table.sort(vals)
+    local sum, cnt = vals[1], 1
+    for i = 2, #vals do
+        if (vals[i] - (sum / cnt)) <= tol then
+            sum = sum + vals[i]
+            cnt = cnt + 1
+        else
+            table.insert(centers, sum / cnt)
+            sum, cnt = vals[i], 1
+        end
+    end
+    table.insert(centers, sum / cnt)
+    return centers
+end
+
+local function AssignModernNodeTiers(nodes)
+    if not nodes or #nodes == 0 then return end
+
+    -- Group nodes by treeID first
+    local byTreeID = {}
+    local treeOrder = {}
+    for _, node in ipairs(nodes) do
+        local tid = tonumber(node.treeID) or 0
+        if not byTreeID[tid] then
+            byTreeID[tid] = {}
+            table.insert(treeOrder, tid)
+        end
+        table.insert(byTreeID[tid], node)
+    end
+    table.sort(treeOrder)
+
+    -- Split each treeID into visual trees (by subTreeID if present, else by posX horizontal bands)
+    local visualTrees = {}
+    for _, tid in ipairs(treeOrder) do
+        local list = byTreeID[tid]
+        local subMap, subOrder = {}, {}
+        for _, n in ipairs(list) do
+            local st = (n.nodeInfo and tonumber(n.nodeInfo.subTreeID)) or 0
+            if st > 0 then
+                if not subMap[st] then
+                    subMap[st] = { nodes = {}, minX = 999999 }
+                    table.insert(subOrder, st)
+                end
+                table.insert(subMap[st].nodes, n)
+                if n.posX and n.posX < subMap[st].minX then subMap[st].minX = n.posX end
+            end
+        end
+
+        if #subOrder >= 2 then
+            table.sort(subOrder, function(a, b) return subMap[a].minX < subMap[b].minX end)
+            for _, st in ipairs(subOrder) do
+                table.insert(visualTrees, subMap[st].nodes)
+            end
+            local unassigned = {}
+            for _, n in ipairs(list) do
+                local st = (n.nodeInfo and tonumber(n.nodeInfo.subTreeID)) or 0
+                if st <= 0 then table.insert(unassigned, n) end
+            end
+            if #unassigned > 0 then table.insert(visualTrees, unassigned) end
+        else
+            -- Cluster by posX gaps to separate side-by-side Classic trees (e.g. BM / MM / Survival)
+            local validX = {}
+            for _, n in ipairs(list) do
+                if n.posX and n.posX < 99990 then table.insert(validX, n.posX) end
+            end
+            if #validX > 0 then
+                table.sort(validX)
+                local xSpan = validX[#validX] - validX[1]
+                local xTol = (xSpan <= 50) and 0.4 or math.max(10, xSpan * 0.015)
+                local xCenters = ClusterSortedCoords(validX, xTol)
+
+                local gaps = {}
+                for i = 1, #xCenters - 1 do
+                    local g = xCenters[i + 1] - xCenters[i]
+                    if g > 0 then table.insert(gaps, g) end
+                end
+                local colStep = 0
+                if #gaps > 0 then
+                    table.sort(gaps)
+                    colStep = gaps[math.max(1, math.floor(#gaps * 0.25))]
+                end
+
+                local bandSplits = {}
+                if colStep > 0 then
+                    for i = 1, #xCenters - 1 do
+                        if (xCenters[i + 1] - xCenters[i]) > (colStep * 1.65) then
+                            table.insert(bandSplits, (xCenters[i] + xCenters[i + 1]) * 0.5)
+                        end
+                    end
+                end
+
+                local bands = {}
+                local numBands = #bandSplits + 1
+                for b = 1, numBands do bands[b] = {} end
+                for _, n in ipairs(list) do
+                    local bIdx = 1
+                    if n.posX and n.posX < 99990 then
+                        for _, splitX in ipairs(bandSplits) do
+                            if n.posX > splitX then bIdx = bIdx + 1 end
+                        end
+                    end
+                    table.insert(bands[bIdx], n)
+                end
+                for b = 1, numBands do
+                    if #bands[b] > 0 then table.insert(visualTrees, bands[b]) end
+                end
+            else
+                table.insert(visualTrees, list)
+            end
+        end
+    end
+
+    -- Assign simTreeIdx, simTreeKey, simTier (Row 1..N from posY), and simCol (Col 1..N from posX)
+    for tIdx, tNodes in ipairs(visualTrees) do
+        local validY, validX = {}, {}
+        for _, n in ipairs(tNodes) do
+            if n.posY and n.posY < 99990 then table.insert(validY, n.posY) end
+            if n.posX and n.posX < 99990 then table.insert(validX, n.posX) end
+        end
+
+        local yCenters, rowStep = {}, 0
+        if #validY > 0 then
+            table.sort(validY)
+            local ySpan = validY[#validY] - validY[1]
+            local yTol = (ySpan <= 50) and 0.4 or math.max(10, ySpan * 0.03)
+            yCenters = ClusterSortedCoords(validY, yTol)
+            local yGaps = {}
+            for i = 1, #yCenters - 1 do
+                local g = yCenters[i + 1] - yCenters[i]
+                if g > 0 then table.insert(yGaps, g) end
+            end
+            if #yGaps > 0 then
+                table.sort(yGaps)
+                rowStep = yGaps[math.max(1, math.floor(#yGaps * 0.25))]
+            end
+        end
+
+        local xCenters, colStep = {}, 0
+        if #validX > 0 then
+            table.sort(validX)
+            local xSpan = validX[#validX] - validX[1]
+            local xTol = (xSpan <= 50) and 0.4 or math.max(10, xSpan * 0.03)
+            xCenters = ClusterSortedCoords(validX, xTol)
+            local xGaps = {}
+            for i = 1, #xCenters - 1 do
+                local g = xCenters[i + 1] - xCenters[i]
+                if g > 0 then table.insert(xGaps, g) end
+            end
+            if #xGaps > 0 then
+                table.sort(xGaps)
+                colStep = xGaps[math.max(1, math.floor(#xGaps * 0.25))]
+            end
+        end
+
+        for _, n in ipairs(tNodes) do
+            n.simTreeIdx = tIdx
+            n.simTreeKey = "tree:" .. tostring(tIdx)
+            if n.posY and n.posY < 99990 and #yCenters > 0 then
+                if rowStep > 0 then
+                    n.simTier = math.max(1, math.floor(((n.posY - yCenters[1]) / rowStep) + 0.5) + 1)
+                else
+                    n.simTier = 1
+                end
+            else
+                n.simTier = 1
+            end
+            if n.posX and n.posX < 99990 and #xCenters > 0 then
+                if colStep > 0 then
+                    n.simCol = math.max(1, math.floor(((n.posX - xCenters[1]) / colStep) + 0.5) + 1)
+                else
+                    n.simCol = 1
+                end
+            else
+                n.simCol = 1
+            end
+        end
+    end
+end
+
 local function CollectModernTreeSnapshot()
     local parent = TA:GetTalentParentFrame()
     local talentsFrame = parent and parent.TalentsFrame
@@ -820,6 +1035,7 @@ local function CollectModernTreeSnapshot()
                             if #names > 0 then
                                 seenNodes[nodeID] = true
                                 table.insert(nodes, {
+                                    treeID = tid,
                                     nodeID = nodeID,
                                     names = names,
                                     curRank = nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased or 0,
@@ -845,6 +1061,7 @@ local function CollectModernTreeSnapshot()
                 seenNodes[key] = true
                 local unlocked = nodeInfo and IsModernNodeUnlocked(configID, nodeInfo) or true
                 table.insert(nodes, {
+                    treeID = 0,
                     nodeID = nodeID,
                     names = names,
                     curRank = (nodeInfo and (nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased)) or 0,
@@ -858,24 +1075,38 @@ local function CollectModernTreeSnapshot()
         end
     end
 
+    AssignModernNodeTiers(nodes)
     return nodes
 end
 
-local function MatchModernNodeByName(nodes, wantName)
+local function MatchModernNodeByName(nodes, wantName, preferredTreeIdx)
     if not nodes or not wantName then return nil, nil end
     local wantLow = string.lower(wantName)
-    local bestNode, bestName = nil, nil
+    local exactAnyNode, exactAnyName = nil, nil
+    local partialPrefNode, partialPrefName = nil, nil
+    local partialAnyNode, partialAnyName = nil, nil
     for _, node in ipairs(nodes) do
+        local isPref = (preferredTreeIdx ~= nil and node.simTreeIdx == preferredTreeIdx)
         for _, n in ipairs(node.names) do
             local low = string.lower(n)
             if low == wantLow then
-                return node, n
-            elseif not bestNode and string.find(low, wantLow, 1, true) then
-                bestNode, bestName = node, n
+                if isPref or not preferredTreeIdx then
+                    return node, n
+                elseif not exactAnyNode then
+                    exactAnyNode, exactAnyName = node, n
+                end
+            elseif string.find(low, wantLow, 1, true) then
+                if isPref and not partialPrefNode then
+                    partialPrefNode, partialPrefName = node, n
+                elseif not partialAnyNode then
+                    partialAnyNode, partialAnyName = node, n
+                end
             end
         end
     end
-    return bestNode, bestName
+    if exactAnyNode then return exactAnyNode, exactAnyName end
+    if partialPrefNode then return partialPrefNode, partialPrefName end
+    return partialAnyNode, partialAnyName
 end
 
 local function FindModernRecommendedTalent(build)
@@ -883,9 +1114,11 @@ local function FindModernRecommendedTalent(build)
     if #nodes == 0 then return nil end
 
     local sawLockedNeed = false
+    local firstLockedTreeKey = nil
+    local firstLockedTab = 1
     for stepIdx, step in ipairs(build.order) do
         local tabIdx, wantName, wantRank = step[1], step[2], step[3]
-        local node, matchedName = MatchModernNodeByName(nodes, wantName)
+        local node, matchedName = MatchModernNodeByName(nodes, wantName, tabIdx)
         if node then
             local target = math.min(wantRank or node.maxRank or 1, node.maxRank or 1)
             if (node.curRank or 0) < target then
@@ -900,27 +1133,39 @@ local function FindModernRecommendedTalent(build)
                         source = "modern",
                     }
                 else
-                    sawLockedNeed = true
+                    if not sawLockedNeed then
+                        sawLockedNeed = true
+                        firstLockedTreeKey = node.simTreeKey
+                        firstLockedTab = tabIdx or 1
+                    end
                 end
             end
         end
     end
 
-    -- Fallback: if desired build node is locked by row/gate requirements, pick highest-priority unlocked lower-row node
+    -- Fallback: if desired build node is locked by row/gate requirements, pick highest-priority unlocked lower-row node in the SAME tree first
     if sawLockedNeed then
-        local bestFallback = nil
-        for _, node in ipairs(nodes) do
-            if node.unlocked and (node.curRank or 0) < (node.maxRank or 1) then
-                if not bestFallback
-                    or node.posY < bestFallback.posY
-                    or (node.posY == bestFallback.posY and node.posX < bestFallback.posX) then
-                    bestFallback = node
+        local function pickBest(sameTreeOnly)
+            local best = nil
+            for _, node in ipairs(nodes) do
+                if node.unlocked and (node.curRank or 0) < (node.maxRank or 1) then
+                    if not sameTreeOnly or (firstLockedTreeKey and node.simTreeKey == firstLockedTreeKey) then
+                        if not best
+                            or (node.simTier or 99) < (best.simTier or 99)
+                            or ((node.simTier or 99) == (best.simTier or 99) and node.posY < best.posY)
+                            or ((node.simTier or 99) == (best.simTier or 99) and node.posY == best.posY and node.posX < best.posX) then
+                            best = node
+                        end
+                    end
                 end
             end
+            return best
         end
+
+        local bestFallback = pickBest(true) or pickBest(false)
         if bestFallback then
             return {
-                tab = 1,
+                tab = firstLockedTab,
                 nodeID = bestFallback.nodeID,
                 name = bestFallback.names[1],
                 curRank = bestFallback.curRank or 0,
@@ -1295,23 +1540,42 @@ function TA:AuditClassBuilds()
         return
     end
 
+    -- Simulate spending points in build order per tree using posX/posY tiers (prevents false-positive LOCKED on low-level chars)
     for _, build in ipairs(builds) do
+        local simTreePoints = {}
+        local simRanks = {}
         local missingIssues = {}
         local lockedIssues = {}
         for stepIdx, step in ipairs(build.order or {}) do
-            local node = MatchModernNodeByName(modernNodes, step[2])
+            local tabIdx, wantName, wantRank = step[1], step[2], step[3]
+            local node, matchedName = MatchModernNodeByName(modernNodes, wantName, tabIdx)
             if not node then
-                table.insert(missingIssues, string.format("Step #%d: '%s' does NOT exist in live modern tree", stepIdx, tostring(step[2])))
-            elseif (node.curRank or 0) == 0 and not node.unlocked then
-                table.insert(lockedIssues, string.format("Step #%d: '%s' currently locked by gate/edge requirements", stepIdx, tostring(step[2])))
+                table.insert(missingIssues, string.format("Step #%d (Tab %d): '%s' does NOT exist in live modern tree", stepIdx, tabIdx or 0, tostring(wantName)))
+            else
+                local treeKey = node.simTreeKey or ("tab:" .. tostring(tabIdx or 1))
+                local tier = math.max(1, tonumber(node.simTier) or 1)
+                local reqPts = (tier - 1) * 5
+                local curTreePts = simTreePoints[treeKey] or 0
+                if curTreePts < reqPts then
+                    table.insert(lockedIssues, string.format("Step #%d (Tab %d / Tree %s): '%s' is Row %d (needs %d pts, only %d simulated pts spent so far)",
+                        stepIdx, tabIdx or 0, tostring(node.simTreeIdx or tabIdx or 1), tostring(matchedName or wantName), tier, reqPts, curTreePts))
+                end
+
+                local nKey = tostring(node.nodeID or matchedName or wantName)
+                local prevSim = simRanks[nKey] or 0
+                local maxR = tonumber(node.maxRank) or 1
+                local target = math.min(tonumber(wantRank) or maxR, maxR)
+                local added = math.max(0, target - prevSim)
+                simRanks[nKey] = prevSim + added
+                simTreePoints[treeKey] = curTreePts + added
             end
         end
         if #missingIssues == 0 and #lockedIssues == 0 then
-            NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps verified in modern tree.", build.label, #(build.order or {})))
-            table.insert(reportLines, string.format("[PASS] %s — All %d steps verified in modern tree.", build.label, #(build.order or {})))
+            NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps verified & pass simulated (tier-1)*5 check.", build.label, #(build.order or {})))
+            table.insert(reportLines, string.format("[PASS] %s — All %d steps verified & pass simulated (tier-1)*5 check.", build.label, #(build.order or {})))
         else
-            NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d currently locked:", build.label, #missingIssues, #lockedIssues))
-            table.insert(reportLines, string.format("[ISSUES] %s — %d missing, %d currently locked:", build.label, #missingIssues, #lockedIssues))
+            NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d locked-tier issue(s):", build.label, #missingIssues, #lockedIssues))
+            table.insert(reportLines, string.format("[ISSUES] %s — %d missing, %d locked-tier issue(s):", build.label, #missingIssues, #lockedIssues))
             for _, m in ipairs(missingIssues) do
                 NS:Print("    |cffff5555MISSING:|r " .. m)
                 table.insert(reportLines, "  MISSING: " .. m)
@@ -1329,15 +1593,22 @@ function TA:AuditClassBuilds()
     local sortedNodes = {}
     for _, node in ipairs(modernNodes) do table.insert(sortedNodes, node) end
     table.sort(sortedNodes, function(a, b)
+        local ta, tb = tonumber(a.simTreeIdx) or 1, tonumber(b.simTreeIdx) or 1
+        if ta ~= tb then return ta < tb end
+        local ra, rb = tonumber(a.simTier) or 1, tonumber(b.simTier) or 1
+        if ra ~= rb then return ra < rb end
+        local ca, cb = tonumber(a.simCol) or 1, tonumber(b.simCol) or 1
+        if ca ~= cb then return ca < cb end
         if a.posY ~= b.posY then return a.posY < b.posY end
         if a.posX ~= b.posX then return a.posX < b.posX end
         return (a.nodeID or 0) < (b.nodeID or 0)
     end)
     for _, node in ipairs(sortedNodes) do
         local allNames = table.concat(node.names or {}, " / ")
-        table.insert(reportLines, string.format("Node %s | posY=%s | posX=%s | %s | MaxRank %d (Cur %d) | Unlocked=%s",
+        table.insert(reportLines, string.format("Tree %d | Row %d | Col %d | Node %s | posY=%s | posX=%s | %s | MaxRank %d (Cur %d)",
+            tonumber(node.simTreeIdx) or 1, tonumber(node.simTier) or 1, tonumber(node.simCol) or 1,
             tostring(node.nodeID or "?"), tostring(node.posY), tostring(node.posX),
-            allNames, tonumber(node.maxRank) or 1, tonumber(node.curRank) or 0, tostring(node.unlocked)))
+            allNames, tonumber(node.maxRank) or 1, tonumber(node.curRank) or 0))
     end
 
     TA:ShowAuditReportPopup(table.concat(reportLines, "\n"), classToken)
