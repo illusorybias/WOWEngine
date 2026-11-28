@@ -149,6 +149,8 @@ function NS:EnsureDB()
     WOWEngineDB.waveByRealm = WOWEngineDB.waveByRealm or {}
     WOWEngineDB.charPlansByRealm = WOWEngineDB.charPlansByRealm or {}
     WOWEngineDB.selectedSpecs = WOWEngineDB.selectedSpecs or {}
+    WOWEngineDB.learnedRecipesByChar = WOWEngineDB.learnedRecipesByChar or {}
+    if WOWEngineDB.vendorRecipeAlertEnabled == nil then WOWEngineDB.vendorRecipeAlertEnabled = true end
     WOWEngineDB.brandHandle = WOWEngineDB.brandHandle or "Illusorybias"
     WOWEngineDB.bugReportUrl = WOWEngineDB.bugReportUrl or "https://github.com/IllusoryBias/WOWEngine/issues/new?template=bug_report.yml"
 

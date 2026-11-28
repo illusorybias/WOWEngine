@@ -369,12 +369,116 @@ local REAGENT_GREY_SKILL_BY_NAME = {
     ["vision dust"] = 235,
 }
 
+local BOLT_OF_CLOTH_IDS = {
+    [2996]  = true, -- Bolt of Linen Cloth
+    [2997]  = true, -- Bolt of Woolen Cloth
+    [4305]  = true, -- Bolt of Silk Cloth
+    [4339]  = true, -- Bolt of Mageweave
+    [14048] = true, -- Bolt of Runecloth
+    [21840] = true, -- Bolt of Netherweave
+    [21842] = true, -- Bolt of Imbued Netherweave
+    [21844] = true, -- Bolt of Soulcloth
+}
+
+-- Bolts of cloth are strictly Tailoring / crafting intermediates and must NEVER be treated as raw cloth for First Aid
+function MR:IsBoltOfClothItem(itemID, itemName)
+    if itemID and BOLT_OF_CLOTH_IDS[tonumber(itemID)] then
+        return true
+    end
+    if itemName and not C.IsSecret(itemName) then
+        local low = string.lower(C.Trim(itemName))
+        if string.find(low, "bolt of ", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
 function MR:IsLinenClothItem(itemID, itemName)
+    if MR:IsBoltOfClothItem(itemID, itemName) then
+        return false
+    end
     if tonumber(itemID) == 2589 then return true end
     if itemName and not C.IsSecret(itemName) then
         return string.lower(C.Trim(itemName)) == "linen cloth"
     end
     return false
+end
+
+-- Check whether targetName is a Tailor (learned or planned) or has a known recipe requiring this bolt
+function MR:CanCharacterUseBolts(targetName, itemID)
+    if not targetName then return false end
+    local roster = NS:GetActiveRoster()
+    local exact = NS.Roster:FindVerifiedName(targetName) or targetName
+    local info = roster and roster[exact]
+    if info and type(info.professions) == "table" then
+        for pName in pairs(info.professions) do
+            if type(pName) == "string" and string.find(string.lower(pName), "tailor", 1, true) then
+                return true
+            end
+        end
+    end
+    if NS.Roster and NS.Roster.GetCharacterProfessionProfile then
+        local prof = NS.Roster:GetCharacterProfessionProfile(exact)
+        if prof then
+            if (prof.p1 and prof.p1.name and string.find(string.lower(prof.p1.name), "tailor", 1, true))
+                or (prof.p2 and prof.p2.name and string.find(string.lower(prof.p2.name), "tailor", 1, true)) then
+                return true
+            end
+        end
+    end
+    if itemID and C.GetMastercraftTopProfitReagentInfo then
+        local usesInMC = C.GetMastercraftTopProfitReagentInfo(itemID, exact)
+        if usesInMC then return true end
+    end
+    return false
+end
+
+function MR:FilterBoltOfClothTargets(candidates, itemID)
+    local out = {}
+    local seen = {}
+    local isSelfTailor = false
+
+    for _, name in ipairs(candidates or {}) do
+        if MR:CanCharacterUseBolts(name, itemID) then
+            if C.IsCurrentPlayer(name) then
+                isSelfTailor = true
+            else
+                local k = C.CanonicalCharKey(name)
+                if k and not seen[k] then
+                    seen[k] = true
+                    table.insert(out, name)
+                end
+            end
+        end
+    end
+
+    -- Fallback: if no configured Cloth recipient was a Tailor, check verified own roster for Tailors
+    if #out == 0 then
+        local roster = NS:GetActiveRoster()
+        for exactName, info in pairs(roster) do
+            if info and info.verified and not NS.Roster:IsExcludedFromMail(info) then
+                local isOwn = (info.isOwnAlt == true) or (info.source == "login") or (info.source == "altoholic")
+                if isOwn and MR:CanCharacterUseBolts(exactName, itemID) then
+                    if C.IsCurrentPlayer(exactName) then
+                        isSelfTailor = true
+                    else
+                        local k = C.CanonicalCharKey(exactName)
+                        if k and not seen[k] then
+                            seen[k] = true
+                            table.insert(out, exactName)
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(out, function(a, b) return string.lower(a) < string.lower(b) end)
+    end
+
+    if isSelfTailor and WOWEngineDB and WOWEngineDB.keepOwnCategoryMats then
+        return {}, true
+    end
+    return out, isSelfTailor
 end
 
 function MR:GetFirstAidSkill(charInfo)
@@ -462,8 +566,8 @@ function MR:IsReagentGreyForTarget(itemID, itemName, cat, targetName)
     local exact = NS.Roster:FindVerifiedName(targetName) or targetName
     local info = roster and roster[exact]
 
-    -- Special case: Linen Cloth is never grey if target still needs First Aid < 80
-    if MR:IsLinenClothItem(itemID, itemName) and info then
+    -- Special case: raw Linen Cloth (never Bolts of Cloth!) is not grey if target still needs First Aid < 80
+    if not MR:IsBoltOfClothItem(itemID, itemName) and MR:IsLinenClothItem(itemID, itemName) and info then
         local faSkill = MR:GetFirstAidSkill(info)
         if faSkill ~= nil and faSkill < 80 then
             return false, "First Aid", faSkill
@@ -792,11 +896,17 @@ function MR:BuildShipmentPlan(forcedTarget)
                             elseif cat then
                                 local eligible, isSelfAssigned = NS.Roster:GetEligibleTargetsForCategory(cat)
                                 local usedFirstAidPriority = false
+                                local isBoltOfCloth = MR:IsBoltOfClothItem(itemID, cleanName)
 
-                                -- First Aid Linen Cloth Evaluator Priority:
-                                -- Automatically include any own character with First Aid < 80 ahead of standard Cloth recipients;
-                                -- once a character hits 80+ First Aid they drop off this priority list automatically.
-                                if MR:IsLinenClothItem(itemID, cleanName) then
+                                -- Bolts of Cloth (Bolt of Linen/Woolen/Silk/Mageweave/Runecloth, etc.)
+                                -- are NEVER routed to First Aid; route strictly to Tailors or characters
+                                -- whose profession/recipe specifically requires bolts.
+                                if isBoltOfCloth then
+                                    eligible, isSelfAssigned = MR:FilterBoltOfClothTargets(eligible, itemID)
+                                elseif MR:IsLinenClothItem(itemID, cleanName) then
+                                    -- First Aid Linen Cloth Evaluator Priority (raw Linen Cloth ONLY):
+                                    -- Automatically include any own character with First Aid < 80 ahead of standard Cloth recipients;
+                                    -- once a character hits 80+ First Aid they drop off this priority list automatically.
                                     local faEligible, faSelf = MR:GetFirstAidLinenPriorityTargets()
                                     if faSelf and #faEligible == 0 and WOWEngineDB and WOWEngineDB.keepOwnCategoryMats then
                                         eligible = {}

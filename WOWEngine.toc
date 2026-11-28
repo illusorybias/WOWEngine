@@ -23,6 +23,7 @@ BagRouter.lua
 MailRouter.lua
 BankSorter.lua
 WaveTracker.lua
+VendorRecipeAlert.lua
 TalentAdvisor.lua
 StatCapsUI.lua
 OnboardingUI.lua

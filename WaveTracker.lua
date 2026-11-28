@@ -292,6 +292,49 @@ local TIER_COLOR = {
     Expert     = "|cffffd100",
     Artisan    = "|cffff8000",
 }
+local PROF_TIER_GROUP = {
+    Herbalism = "gathering",
+    Mining    = "gathering",
+    Skinning  = "gathering",
+    Cooking   = "secondary",
+    Fishing   = "secondary",
+    ["First Aid"] = "secondary",
+}
+
+local TIER_META_BY_GROUP = {
+    crafting = {
+        Apprentice = { minSkill = 1,   maxSkill = 75,  reqLevel = 5,  rangeText = "Skill 1-75 | Req Lv 5" },
+        Journeyman = { minSkill = 50,  maxSkill = 150, reqLevel = 10, rangeText = "Skill 50-150 | Req Lv 10" },
+        Expert     = { minSkill = 125, maxSkill = 225, reqLevel = 20, rangeText = "Skill 125-225 | Req Lv 20" },
+        Artisan    = { minSkill = 200, maxSkill = 300, reqLevel = 35, rangeText = "Skill 200-300 | Req Lv 35" },
+    },
+    gathering = {
+        Apprentice = { minSkill = 1,   maxSkill = 75,  reqLevel = 1,  rangeText = "Skill 1-75 | Req Lv 1" },
+        Journeyman = { minSkill = 50,  maxSkill = 150, reqLevel = 1,  rangeText = "Skill 50-150 | Req Lv 1" },
+        Expert     = { minSkill = 125, maxSkill = 225, reqLevel = 10, rangeText = "Skill 125-225 | Req Lv 10" },
+        Artisan    = { minSkill = 200, maxSkill = 300, reqLevel = 25, rangeText = "Skill 200-300 | Req Lv 25" },
+    },
+    secondary = {
+        Apprentice = { minSkill = 1,   maxSkill = 75,  reqLevel = 1,  rangeText = "Skill 1-75 | Req Lv 1" },
+        Journeyman = { minSkill = 50,  maxSkill = 150, reqLevel = 1,  rangeText = "Skill 50-150 | Req Lv 1" },
+        Expert     = { minSkill = 125, maxSkill = 225, reqLevel = 20, rangeText = "Skill 125-225 | Book / Req Lv 20" },
+        Artisan    = { minSkill = 225, maxSkill = 300, reqLevel = 35, rangeText = "Skill 225-300 | Quest / Req Lv 35" },
+    },
+}
+
+local function GetTierMetaForProf(profName, tierName)
+    local grp = (profName and PROF_TIER_GROUP[profName]) or "crafting"
+    local tbl = TIER_META_BY_GROUP[grp] or TIER_META_BY_GROUP.crafting
+    return tbl[tierName]
+end
+
+local function FormatTierWithRange(tierName, profName)
+    local meta = GetTierMetaForProf(profName, tierName)
+    if meta then
+        return string.format("%s (%s)", tostring(tierName), meta.rangeText)
+    end
+    return tostring(tierName or "Trainer")
+end
 
 WT.TRAINER_PINS = {
     Horde = {
@@ -490,10 +533,14 @@ local function GetPlayerMapPositionSafe()
     return mapID, px, py
 end
 
-function WT:PlaceTrainerMapPin(entry)
-    if not entry then return false end
-    local mapID = ResolveTrainerMapID(entry.zone)
-    local label = string.format("%s (%s %s) - %s", entry.npc or "Trainer", entry.tier or "", entry.profession or "", entry.subzone or entry.zone or "")
+-- Reusable 100% nil-safe map waypoint helper (shared by Trainer Pin Selector & Vendor Recipe Alert)
+function WT:PlaceMapPin(mapID, x, y, zoneName, label, chatPrefix)
+    if not mapID and zoneName then
+        mapID = ResolveTrainerMapID(zoneName)
+    end
+    local coordX = tonumber(x) or 50
+    local coordY = tonumber(y) or 50
+    local pinTitle = label or zoneName or "WOWEngine Pin"
     local pinnedNative = false
     local pinnedTomTom = false
 
@@ -509,7 +556,7 @@ function WT:PlaceTrainerMapPin(entry)
         if canPin then
             local ok, didSet = pcall(function()
                 if C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
-                local pt = UiMapPoint.CreateFromCoordinates(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100)
+                local pt = UiMapPoint.CreateFromCoordinates(mapID, coordX / 100, coordY / 100)
                 if not pt then return false end
                 C_Map.SetUserWaypoint(pt)
                 if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
@@ -529,8 +576,8 @@ function WT:PlaceTrainerMapPin(entry)
                 if WT.lastTomTomUID and type(TT.RemoveWaypoint) == "function" then
                     TT:RemoveWaypoint(WT.lastTomTomUID)
                 end
-                WT.lastTomTomUID = TT:AddWaypoint(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100, {
-                    title = label,
+                WT.lastTomTomUID = TT:AddWaypoint(mapID, coordX / 100, coordY / 100, {
+                    title = pinTitle,
                     persistent = false,
                     minimap = true,
                     world = true,
@@ -539,7 +586,7 @@ function WT:PlaceTrainerMapPin(entry)
             if ok then pinnedTomTom = true end
         elseif not pinnedNative and SlashCmdList and type(SlashCmdList["TOMTOM_WAY"]) == "function" then
             local ok = pcall(function()
-                SlashCmdList["TOMTOM_WAY"](string.format("%s %.1f %.1f %s", entry.zone or "", entry.x or 50, entry.y or 50, label))
+                SlashCmdList["TOMTOM_WAY"](string.format("%s %.1f %.1f %s", zoneName or "", coordX, coordY, pinTitle))
             end)
             if ok then pinnedTomTom = true end
         end
@@ -547,15 +594,24 @@ function WT:PlaceTrainerMapPin(entry)
 
     if pinnedNative or pinnedTomTom then
         local via = pinnedNative and (pinnedTomTom and "Map Pin + TomTom" or "Map Pin") or "TomTom"
-        NS:Print(string.format("|cff00ff00Placed %s:|r %s[%s]|r |cffffd100%s|r — %s (%s %.1f, %.1f)",
-            via, TIER_COLOR[entry.tier] or "|cffffd100", entry.tier or "Trainer",
-            entry.profession or "", entry.npc or "Trainer", entry.zone or "", entry.x or 0, entry.y or 0))
+        NS:Print(string.format("|cff00ff00Placed %s:|r %s (%s, %.1f, %.1f)",
+            via, chatPrefix or pinTitle, zoneName or "Current Zone", coordX, coordY))
         return true
     end
 
-    NS:Print(string.format("|cffffd100Trainer Coordinates:|r [%s] %s — %s (%s %.1f, %.1f) (Native waypoints & TomTom unavailable on this client)",
-        entry.tier or "Trainer", entry.profession or "", entry.npc or "Trainer", entry.zone or "", entry.x or 0, entry.y or 0))
+    NS:Print(string.format("|cffffd100Waypoint Coordinates:|r %s (%s, %.1f, %.1f) (Native waypoints & TomTom unavailable on this client)",
+        chatPrefix or pinTitle, zoneName or "Current Zone", coordX, coordY))
     return false
+end
+
+function WT:PlaceTrainerMapPin(entry)
+    if not entry then return false end
+    local mapID = ResolveTrainerMapID(entry.zone)
+    local tierDisplay = FormatTierWithRange(entry.tier, entry.profession)
+    local label = string.format("%s — %s %s (%s)", entry.npc or "Trainer", tierDisplay, entry.profession or "", entry.subzone or entry.zone or "")
+    local chatPrefix = string.format("%s%s|r |cffffd100%s|r — %s",
+        TIER_COLOR[entry.tier] or "|cffffd100", tierDisplay, entry.profession or "", entry.npc or "Trainer")
+    return WT:PlaceMapPin(mapID, entry.x, entry.y, entry.zone, label, chatPrefix)
 end
 
 function WT:BuildTrainerPinList(query)
@@ -603,12 +659,15 @@ function WT:BuildTrainerPinList(query)
                     local dy = t.y - py
                     dist = math.sqrt(dx * dx + dy * dy)
                 end
-                local tierMatches = (skillRank >= (t.minSkill or 0) and skillRank < (t.maxSkill or 300))
+                local meta = GetTierMetaForProf(pName, t.tier)
+                local minSk = (meta and meta.minSkill) or t.minSkill or 0
+                local maxSk = (meta and meta.maxSkill) or t.maxSkill or 300
+                local tierMatches = (skillRank >= (minSk == 1 and 0 or minSk) and skillRank < maxSk)
                 table.insert(results, {
                     profession = pName,
                     tier = t.tier,
-                    minSkill = t.minSkill,
-                    maxSkill = t.maxSkill,
+                    minSkill = minSk,
+                    maxSkill = maxSk,
                     npc = t.npc,
                     zone = t.zone,
                     subzone = t.subzone,
@@ -664,8 +723,9 @@ function WT:RefreshTrainerPinPopup()
             row.radioTxt:SetText(selected and "|cffffd100(O)|r" or "|cff777777( )|r")
             local distTag = entry.sameZone and " |cff00ff00[Here]|r" or ""
             local tierCol = TIER_COLOR[entry.tier] or "|cffffd100"
-            row.labelTxt:SetText(string.format("%s[%s]|r |cffffd100%s|r — %s (%s %.1f, %.1f)%s",
-                tierCol, entry.tier or "Tier", entry.profession or "", entry.npc or "Trainer",
+            local tierDisplay = FormatTierWithRange(entry.tier, entry.profession)
+            row.labelTxt:SetText(string.format("%s%s|r |cffffd100%s|r — %s (%s, %.1f, %.1f)%s",
+                tierCol, tierDisplay, entry.profession or "", entry.npc or "Trainer",
                 entry.zone or "", entry.x or 0, entry.y or 0, distTag))
             if selected then
                 row.bg:SetColorTexture(0.14, 0.30, 0.56, 0.85)
@@ -693,7 +753,7 @@ function WT:OpenTrainerPinPopup(query)
     if not WT.trainerPinFrame then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local tf = CreateFrame("Frame", "WOWEngineTrainerPinFrame", UIParent, template)
-        tf:SetSize(510, 340)
+        tf:SetSize(610, 345)
         tf:SetPoint("CENTER", UIParent, "CENTER", 0, 25)
         tf:SetFrameStrata("DIALOG")
         tf:SetFrameLevel(155)
@@ -819,26 +879,38 @@ function WT:OpenTrainerPinPopup(query)
     WT.trainerPinFrame:Raise()
 end
 
+local function PrintProfessionTrainerTiers(pName, catalog)
+    local entries = catalog and catalog[pName]
+    if type(entries) ~= "table" or #entries == 0 then return false end
+    NS:Print("  |cffffd100" .. pName .. ":|r")
+    for _, t in ipairs(entries) do
+        local tierCol = TIER_COLOR[t.tier] or "|cffffd100"
+        local tierDisplay = FormatTierWithRange(t.tier, pName)
+        local subStr = (t.subzone and t.subzone ~= "") and (" - " .. t.subzone) or ""
+        NS:Print(string.format("    %s%s|r — %s (%s%s, %.1f, %.1f)",
+            tierCol, tierDisplay, t.npc or "Trainer", t.zone or "", subStr, t.x or 0, t.y or 0))
+    end
+    return true
+end
+
 function WT:PrintTrainerLookup(query, suppressPopup)
     local _, faction = NS:GetContextKeys()
-    local tableForFaction = WT.TRAINERS[faction] or WT.TRAINERS.Horde
+    local catalog = WT.TRAINER_PINS[faction] or WT.TRAINER_PINS.Horde
     local q = string.lower(C.Trim(query or ""))
 
     if q == "" then
         local profs = C.GetPlayerProfessions()
         local subs = C.GetPlayerSubProfessions and C.GetPlayerSubProfessions() or {}
-        NS:Print("=== " .. faction .. " Profession Trainer Coordinates ===")
+        NS:Print("=== " .. faction .. " Profession Trainer Coordinates (WoW Forever Tiers) ===")
         local printed = false
         for pName in pairs(profs) do
-            if tableForFaction[pName] then
+            if PrintProfessionTrainerTiers(pName, catalog) then
                 printed = true
-                NS:Print("  |cffffd100" .. pName .. ":|r " .. tableForFaction[pName])
             end
         end
         for sName in pairs(subs) do
-            if tableForFaction[sName] then
+            if PrintProfessionTrainerTiers(sName, catalog) then
                 printed = true
-                NS:Print("  |cffffd100" .. sName .. ":|r " .. tableForFaction[sName])
             end
         end
         if not printed then
@@ -851,9 +923,12 @@ function WT:PrintTrainerLookup(query, suppressPopup)
     end
 
     if q == "all" then
-        NS:Print("=== All " .. faction .. " Capital Trainer Coordinates ===")
-        for pName, loc in pairs(tableForFaction) do
-            NS:Print("  |cffffd100" .. pName .. ":|r " .. loc)
+        NS:Print("=== All " .. faction .. " Trainer Coordinates (WoW Forever Tiers) ===")
+        local ordered = {}
+        for pName in pairs(catalog) do table.insert(ordered, pName) end
+        table.sort(ordered)
+        for _, pName in ipairs(ordered) do
+            PrintProfessionTrainerTiers(pName, catalog)
         end
         if not suppressPopup then
             WT:OpenTrainerPinPopup("all")
@@ -862,10 +937,14 @@ function WT:PrintTrainerLookup(query, suppressPopup)
     end
 
     local hits = 0
-    for pName, loc in pairs(tableForFaction) do
+    local ordered = {}
+    for pName in pairs(catalog) do table.insert(ordered, pName) end
+    table.sort(ordered)
+    for _, pName in ipairs(ordered) do
         if string.find(string.lower(pName), q, 1, true) then
-            hits = hits + 1
-            NS:Print("  |cffffd100" .. pName .. " (" .. faction .. "):|r " .. loc)
+            if PrintProfessionTrainerTiers(pName, catalog) then
+                hits = hits + 1
+            end
         end
     end
     if hits == 0 then
