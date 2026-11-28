@@ -156,7 +156,13 @@ function NS:EnsureDB()
             completed = false,
             specFocus = "PvE",
             metaSource = "Wowhead",
+            secondaryMode = "ask",
+            secondaryMetaSource = "Wowhead",
+            promptOnDualSpecUnlock = true,
+            secondaryConfigured = false,
             useBankAlt = true,
+            lastKnownSpecGroupsByChar = {},
+            dualSpecPromptedByChar = {},
         }
     end
     if type(WOWEngineDB.pointNag) ~= "table" then

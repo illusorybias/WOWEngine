@@ -341,6 +341,25 @@ function TA:GetPlayerClassBuilds()
     return TA.BUILDS[classToken or "WARRIOR"] or TA.BUILDS.WARRIOR, classToken or "WARRIOR"
 end
 
+function TA:GetActiveSpecGroup()
+    if NS.PlanBuilder and NS.PlanBuilder.GetActiveSpecGroupSafe then
+        return NS.PlanBuilder:GetActiveSpecGroupSafe()
+    end
+    if C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup then
+        local ok, g = pcall(C_SpecializationInfo.GetActiveSpecGroup)
+        if ok and type(g) == "number" and g >= 1 then return g end
+    end
+    if GetActiveSpecGroup then
+        local ok, g = pcall(GetActiveSpecGroup)
+        if ok and type(g) == "number" and g >= 1 then return g end
+    end
+    if GetActiveTalentGroup then
+        local ok, g = pcall(GetActiveTalentGroup)
+        if ok and type(g) == "number" and g >= 1 then return g end
+    end
+    return 1
+end
+
 function TA:PickBuildForPlanFocus(builds, specFocus)
     if not builds or #builds == 0 then return nil end
     local focus = string.lower(tostring(specFocus or "pve"))
@@ -367,25 +386,39 @@ function TA:PickBuildForPlanFocus(builds, specFocus)
     return builds[1]
 end
 
-function TA:ApplyPlanFocus(specFocus, metaSource)
+function TA:ApplyPlanFocus(specFocus, metaSource, groupNum)
     NS:EnsureDB()
     local builds = TA:GetPlayerClassBuilds()
     local picked = TA:PickBuildForPlanFocus(builds, specFocus)
     if not picked then return end
     local cKey = C.CanonicalCharKey(C.GetPlayerName() or "Player") or "player"
-    WOWEngineDB.selectedSpecs[cKey] = picked.id
+    local grp = tonumber(groupNum) or TA:GetActiveSpecGroup()
+    WOWEngineDB.selectedSpecs[cKey .. ":" .. tostring(grp)] = picked.id
+    if grp == 1 then
+        WOWEngineDB.selectedSpecs[cKey] = picked.id
+    end
     TA:UpdateTalentHighlight()
+    if TA.fullTreeFrame and TA.fullTreeFrame:IsShown() then
+        pcall(function() TA:RefreshFullTreePreview() end)
+    end
     if NS.StatCapsUI and NS.StatCapsUI.Refresh then NS.StatCapsUI:Refresh() end
 end
 
-function TA:GetSelectedBuild()
+function TA:GetSelectedBuild(forGroup)
     NS:EnsureDB()
     local builds = TA:GetPlayerClassBuilds()
     local cKey = C.CanonicalCharKey(C.GetPlayerName() or "Player") or "player"
-    local savedId = WOWEngineDB.selectedSpecs and WOWEngineDB.selectedSpecs[cKey]
+    local grp = tonumber(forGroup) or TA:GetActiveSpecGroup()
+    local savedId = WOWEngineDB.selectedSpecs and (WOWEngineDB.selectedSpecs[cKey .. ":" .. tostring(grp)] or (grp == 1 and WOWEngineDB.selectedSpecs[cKey] or nil))
     if savedId then
         for _, b in ipairs(builds) do
             if b.id == savedId then return b end
+        end
+    end
+    if NS.PlanBuilder and NS.PlanBuilder.GetPlanForGroup then
+        local planFocus = NS.PlanBuilder:GetPlanForGroup(grp)
+        if planFocus then
+            return TA:PickBuildForPlanFocus(builds, planFocus) or builds[1]
         end
     end
     local planFocus = WOWEngineDB.userPlan and WOWEngineDB.userPlan.specFocus
@@ -395,11 +428,12 @@ function TA:GetSelectedBuild()
     return builds[1]
 end
 
-function TA:CycleBuild(delta)
+function TA:CycleBuild(delta, forGroup)
     NS:EnsureDB()
     local builds = TA:GetPlayerClassBuilds()
     if #builds == 0 then return end
-    local cur = TA:GetSelectedBuild()
+    local grp = tonumber(forGroup) or TA:GetActiveSpecGroup()
+    local cur = TA:GetSelectedBuild(grp)
     local step = delta or 1
     local nextIdx = 1
     for i, b in ipairs(builds) do
@@ -410,9 +444,15 @@ function TA:CycleBuild(delta)
     end
     local picked = builds[nextIdx]
     local cKey = C.CanonicalCharKey(C.GetPlayerName() or "Player") or "player"
-    WOWEngineDB.selectedSpecs[cKey] = picked.id
-    NS:Print("Selected Spec Pre-Load: |cffffd100" .. picked.label .. "|r (" .. picked.role .. ")")
+    WOWEngineDB.selectedSpecs[cKey .. ":" .. tostring(grp)] = picked.id
+    if grp == 1 then
+        WOWEngineDB.selectedSpecs[cKey] = picked.id
+    end
+    NS:Print("Selected Spec Pre-Load (Group " .. tostring(grp) .. "): |cffffd100" .. picked.label .. "|r (" .. picked.role .. ")")
     TA:UpdateTalentHighlight()
+    if TA.fullTreeFrame and TA.fullTreeFrame:IsShown() then
+        pcall(function() TA:RefreshFullTreePreview() end)
+    end
     if NS.StatCapsUI and NS.StatCapsUI.Refresh then NS.StatCapsUI:Refresh() end
 end
 
@@ -619,7 +659,7 @@ local function SnapshotClassicTab(tabIdx)
     local pointsSpent = 0
 
     for tIdx = 1, numTalents do
-        local okT, tName, _, tier, col, curRank, maxRank, _, available = pcall(GetTalentInfo, tabIdx, tIdx)
+        local okT, tName, iconTex, tier, col, curRank, maxRank, _, available = pcall(GetTalentInfo, tabIdx, tIdx)
         if okT and tName and not (C and C.IsSecret and C.IsSecret(tName)) then
             local r = tonumber(curRank) or 0
             local m = tonumber(maxRank) or 1
@@ -645,6 +685,7 @@ local function SnapshotClassicTab(tabIdx)
                 tab = tabIdx,
                 index = tIdx,
                 name = tName,
+                icon = iconTex,
                 lower = string.lower(tName),
                 tier = tr,
                 col = cl,
@@ -658,11 +699,25 @@ local function SnapshotClassicTab(tabIdx)
         end
     end
 
+    local bgFile = nil
+    if GetTalentTabInfo then
+        local okTab, r1, r2, r3, r4, r5, r6 = pcall(GetTalentTabInfo, tabIdx)
+        if okTab then
+            -- Classic: (name, icon, pointsSpent, fileName); Cata/MoP: (id, name, desc, icon, pointsSpent, bg, ...)
+            if type(r4) == "string" and r4 ~= "" and not string.find(r4, "\\") and not string.find(r4, "/") then
+                bgFile = r4
+            elseif type(r6) == "string" and r6 ~= "" then
+                bgFile = r6
+            end
+        end
+    end
+
     return {
         tab = tabIdx,
         talents = talents,
         byGrid = byGrid,
         pointsSpent = pointsSpent,
+        bgFile = bgFile,
     }
 end
 
@@ -995,10 +1050,136 @@ function TA:FindNextRecommendedTalent()
     return nil, build
 end
 
+local function GetClassicTabName(tabIdx)
+    if GetTalentTabInfo then
+        local ok, r1, r2 = pcall(GetTalentTabInfo, tabIdx)
+        if ok then
+            if type(r1) == "string" and r1 ~= "" and not (C and C.IsSecret and C.IsSecret(r1)) then
+                return r1
+            elseif type(r2) == "string" and r2 ~= "" and not (C and C.IsSecret and C.IsSecret(r2)) then
+                return r2
+            end
+        end
+    end
+    return "Tab " .. tostring(tabIdx)
+end
+
+-- Scrollable, copyable Blizzard blue-and-gold popup window (matches /he bug EditBox style)
+function TA:ShowAuditReportPopup(reportText, classToken)
+    if not TA.auditFrame then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local f = CreateFrame("Frame", "WOWEngineTalentAuditFrame", UIParent, template)
+        f:SetSize(580, 460)
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+        f:SetFrameStrata("DIALOG")
+        f:SetFrameLevel(150)
+        f:SetClampedToScreen(true)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+        if f.SetBackdrop then
+            pcall(function()
+                f:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                    tile = true, tileSize = 16, edgeSize = 14,
+                    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+                })
+                f:SetBackdropColor(0.04, 0.09, 0.19, 0.97)
+                f:SetBackdropBorderColor(0.95, 0.78, 0.18, 1.0)
+            end)
+        end
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineTalentAuditFrame")
+        end
+
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 14, -12)
+        f.title = title
+
+        local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+        local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+        hint:SetText("|cffffd100All text is pre-selected — press Ctrl+C to copy both the audit mismatches and full live talent tree dump:|r")
+
+        local scroll = CreateFrame("ScrollFrame", "WOWEngineTalentAuditScroll", f, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", 14, -56)
+        scroll:SetPoint("BOTTOMRIGHT", -34, 46)
+
+        local editBox = CreateFrame("EditBox", "WOWEngineTalentAuditEditBox", scroll)
+        editBox:SetMultiLine(true)
+        editBox:SetFontObject("ChatFontNormal")
+        editBox:SetWidth(520)
+        editBox:SetHeight(340)
+        editBox:SetAutoFocus(false)
+        editBox:SetScript("OnEscapePressed", function() f:Hide() end)
+        editBox:SetScript("OnTextChanged", function()
+            pcall(function()
+                if scroll and scroll.UpdateScrollChildRect then
+                    scroll:UpdateScrollChildRect()
+                end
+            end)
+        end)
+        scroll:SetScrollChild(editBox)
+        f.editBox = editBox
+
+        local selectBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        selectBtn:SetSize(156, 24)
+        selectBtn:SetPoint("BOTTOMLEFT", 14, 12)
+        selectBtn:SetText("Select All (Ctrl+C)")
+        selectBtn:SetScript("OnClick", function()
+            pcall(function()
+                f.editBox:SetFocus()
+                f.editBox:HighlightText()
+            end)
+        end)
+
+        local doneBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        doneBtn:SetSize(84, 24)
+        doneBtn:SetPoint("BOTTOMRIGHT", -14, 12)
+        doneBtn:SetText("Close")
+        doneBtn:SetScript("OnClick", function() f:Hide() end)
+
+        TA.auditFrame = f
+    end
+
+    TA.auditFrame.title:SetText("|cff00aeffWOWEngine|r |cffffd100Talent Tree Audit & Dump (" .. tostring(classToken or "?") .. ")|r")
+    pcall(function() TA.auditFrame.editBox:SetText(tostring(reportText or "")) end)
+    TA.auditFrame:Show()
+    TA.auditFrame:Raise()
+    pcall(function()
+        TA.auditFrame.editBox:SetFocus()
+        TA.auditFrame.editBox:HighlightText()
+    end)
+end
+
 -- Live Tree Audit Command (/he talent audit): checks every saved build for current class against live client tree
+-- Prints summary to chat AND opens a copyable popup with (1) Audit Mismatches and (2) Full Live Client Talent Tree Dump
 function TA:AuditClassBuilds()
     local builds, classToken = TA:GetPlayerClassBuilds()
     NS:Print("=== WOWEngine Live Talent Tree Audit (" .. tostring(classToken or "?") .. ") ===")
+
+    local ver, buildNum, _, iface = "?", "?", "?", "?"
+    if GetBuildInfo then
+        local okB, v, b, bd, i = pcall(GetBuildInfo)
+        if okB then ver, buildNum, _, iface = v or "?", b or "?", bd or "?", i or "?" end
+    end
+
+    local reportLines = {
+        "=== WOWEngine Live Talent Tree Audit (" .. tostring(classToken or "?") .. ") ===",
+        string.format("Character: %s (Lv%d %s) | Client: %s (%s) | Interface: %s",
+            tostring(C.GetPlayerName() or "Player"), tonumber(UnitLevel and UnitLevel("player")) or 0,
+            tostring(classToken or "?"), tostring(ver), tostring(buildNum), tostring(iface)),
+        "",
+        "=== SECTION 1: BUILD AUDIT MISMATCHES ===",
+    }
 
     -- 1. Classic / WoW Forever 3-tab audit
     local tabSnaps = {}
@@ -1051,17 +1232,57 @@ function TA:AuditClassBuilds()
             end
 
             if #missingIssues == 0 and #lockedIssues == 0 then
-                NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps exist & pass (tier-1)*5 and prereq checks.", build.label, #(build.order or {})))
+                local passLine = string.format("[PASS] %s — All %d steps exist & pass (tier-1)*5 and prereq checks.", build.label, #(build.order or {}))
+                NS:Print("  |cff00ff00[PASS]|r |cffffd100" .. build.label .. "|r — All " .. tostring(#(build.order or {})) .. " steps exist & pass (tier-1)*5 and prereq checks.")
+                table.insert(reportLines, passLine)
             else
                 NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d locked-tier/prereq issue(s):", build.label, #missingIssues, #lockedIssues))
+                table.insert(reportLines, string.format("[ISSUES] %s — %d missing, %d locked-tier/prereq issue(s):", build.label, #missingIssues, #lockedIssues))
                 for _, m in ipairs(missingIssues) do
                     NS:Print("    |cffff5555MISSING:|r " .. m)
+                    table.insert(reportLines, "  MISSING: " .. m)
                 end
                 for _, l in ipairs(lockedIssues) do
                     NS:Print("    |cffff9900LOCKED:|r " .. l)
+                    table.insert(reportLines, "  LOCKED: " .. l)
                 end
             end
         end
+
+        -- Section 2: Full dump of live client's Classic / WoW Forever talent tree
+        table.insert(reportLines, "")
+        table.insert(reportLines, "=== SECTION 2: LIVE CLIENT TALENT TREE DUMP ===")
+        for tabIdx = 1, 3 do
+            local snap = tabSnaps[tabIdx]
+            if snap then
+                local tabName = GetClassicTabName(tabIdx)
+                table.insert(reportLines, string.format("-- Tab %d: %s (%d talents | %d pts spent) --",
+                    tabIdx, tabName, #snap.talents, snap.pointsSpent or 0))
+                local sorted = {}
+                for _, t in ipairs(snap.talents) do table.insert(sorted, t) end
+                table.sort(sorted, function(a, b)
+                    if a.tier ~= b.tier then return a.tier < b.tier end
+                    if a.col ~= b.col then return a.col < b.col end
+                    return (a.index or 0) < (b.index or 0)
+                end)
+                for _, t in ipairs(sorted) do
+                    local prereqNote = ""
+                    if t.prereqs and #t.prereqs > 0 then
+                        local pParts = {}
+                        for _, pr in ipairs(t.prereqs) do
+                            local req = snap.byGrid[pr.tier .. ":" .. pr.col]
+                            table.insert(pParts, string.format("R%dC%d(%s)", pr.tier, pr.col, req and req.name or "?"))
+                        end
+                        prereqNote = " | Prereq: " .. table.concat(pParts, ", ")
+                    end
+                    table.insert(reportLines, string.format("Tab %d (%s) | Row %d | Col %d | %s | MaxRank %d (Cur %d)%s",
+                        tabIdx, tabName, t.tier, t.col, t.name, t.maxRank, t.curRank, prereqNote))
+                end
+                table.insert(reportLines, "")
+            end
+        end
+
+        TA:ShowAuditReportPopup(table.concat(reportLines, "\n"), classToken)
         return
     end
 
@@ -1069,6 +1290,8 @@ function TA:AuditClassBuilds()
     local modernNodes = CollectModernTreeSnapshot()
     if #modernNodes == 0 then
         NS:Print("|cffff9900Talent tree data not loaded yet.|r Open your Talent window (press N) once, then re-run |cffffd100/he talent audit|r.")
+        table.insert(reportLines, "(Talent tree data not loaded yet — press N to open your Talent window once, then re-run /he talent audit.)")
+        TA:ShowAuditReportPopup(table.concat(reportLines, "\n"), classToken)
         return
     end
 
@@ -1085,12 +1308,39 @@ function TA:AuditClassBuilds()
         end
         if #missingIssues == 0 and #lockedIssues == 0 then
             NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps verified in modern tree.", build.label, #(build.order or {})))
+            table.insert(reportLines, string.format("[PASS] %s — All %d steps verified in modern tree.", build.label, #(build.order or {})))
         else
             NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d currently locked:", build.label, #missingIssues, #lockedIssues))
-            for _, m in ipairs(missingIssues) do NS:Print("    |cffff5555MISSING:|r " .. m) end
-            for _, l in ipairs(lockedIssues) do NS:Print("    |cffff9900LOCKED:|r " .. l) end
+            table.insert(reportLines, string.format("[ISSUES] %s — %d missing, %d currently locked:", build.label, #missingIssues, #lockedIssues))
+            for _, m in ipairs(missingIssues) do
+                NS:Print("    |cffff5555MISSING:|r " .. m)
+                table.insert(reportLines, "  MISSING: " .. m)
+            end
+            for _, l in ipairs(lockedIssues) do
+                NS:Print("    |cffff9900LOCKED:|r " .. l)
+                table.insert(reportLines, "  LOCKED: " .. l)
+            end
         end
     end
+
+    -- Section 2: Full dump of live modern C_Traits tree
+    table.insert(reportLines, "")
+    table.insert(reportLines, "=== SECTION 2: LIVE CLIENT TALENT TREE DUMP (MODERN C_TRAITS) ===")
+    local sortedNodes = {}
+    for _, node in ipairs(modernNodes) do table.insert(sortedNodes, node) end
+    table.sort(sortedNodes, function(a, b)
+        if a.posY ~= b.posY then return a.posY < b.posY end
+        if a.posX ~= b.posX then return a.posX < b.posX end
+        return (a.nodeID or 0) < (b.nodeID or 0)
+    end)
+    for _, node in ipairs(sortedNodes) do
+        local allNames = table.concat(node.names or {}, " / ")
+        table.insert(reportLines, string.format("Node %s | posY=%s | posX=%s | %s | MaxRank %d (Cur %d) | Unlocked=%s",
+            tostring(node.nodeID or "?"), tostring(node.posY), tostring(node.posX),
+            allNames, tonumber(node.maxRank) or 1, tonumber(node.curRank) or 0, tostring(node.unlocked)))
+    end
+
+    TA:ShowAuditReportPopup(table.concat(reportLines, "\n"), classToken)
 end
 
 -- Create high-contrast Gold Border + Additive Glow + NEXT Pill around recommended talent button
@@ -1205,6 +1455,545 @@ local function AnchorTalentBar(bar, parent)
     bar:SetFrameLevel(math.max(parentLevel + 10, 50))
 end
 
+-- ============================================================
+-- FULL BLIZZARD-GRAPHICS 3-PANEL TALENT TREE POP-OUT PREVIEW
+-- ============================================================
+TA.fullTreeFrame = nil
+TA.fullTreeGroup = nil
+
+local function SetColorTexSafe(tex, r, g, b, a)
+    if tex.SetColorTexture then
+        tex:SetColorTexture(r, g, b, a)
+    else
+        tex:SetTexture("Interface\\Buttons\\WHITE8x8")
+        tex:SetVertexColor(r, g, b, a)
+    end
+end
+
+local function ApplyBlizzardTreeBackground(panel, bgFile)
+    if not panel or not panel.bgQuads then return end
+    if bgFile and type(bgFile) == "string" and bgFile ~= "" then
+        local base = "Interface\\TalentFrame\\" .. bgFile
+        panel.bgQuads.tl:SetTexture(base .. "-TopLeft")
+        panel.bgQuads.tr:SetTexture(base .. "-TopRight")
+        panel.bgQuads.bl:SetTexture(base .. "-BottomLeft")
+        panel.bgQuads.br:SetTexture(base .. "-BottomRight")
+        panel.bgQuads.tl:SetVertexColor(0.85, 0.85, 0.90, 0.88)
+        panel.bgQuads.tr:SetVertexColor(0.85, 0.85, 0.90, 0.88)
+        panel.bgQuads.bl:SetVertexColor(0.85, 0.85, 0.90, 0.88)
+        panel.bgQuads.br:SetVertexColor(0.85, 0.85, 0.90, 0.88)
+    else
+        SetColorTexSafe(panel.bgQuads.tl, 0.04, 0.08, 0.16, 0.92)
+        SetColorTexSafe(panel.bgQuads.tr, 0.04, 0.08, 0.16, 0.92)
+        SetColorTexSafe(panel.bgQuads.bl, 0.03, 0.06, 0.13, 0.92)
+        SetColorTexSafe(panel.bgQuads.br, 0.03, 0.06, 0.13, 0.92)
+    end
+end
+
+local function AcquirePreviewArrow(panel, arrowIdx)
+    panel.arrows = panel.arrows or {}
+    local a = panel.arrows[arrowIdx]
+    if not a then
+        a = {}
+        a.line1 = panel:CreateTexture(nil, "ARTWORK")
+        a.line2 = panel:CreateTexture(nil, "ARTWORK")
+        a.head = panel:CreateTexture(nil, "OVERLAY")
+        a.head:SetSize(8, 8)
+        panel.arrows[arrowIdx] = a
+    end
+    return a
+end
+
+local function DrawPreviewPrereqArrow(panel, arrowIdx, x1, y1, x2, y2, r, g, b, alpha)
+    local a = AcquirePreviewArrow(panel, arrowIdx)
+    a.line1:ClearAllPoints()
+    a.line2:ClearAllPoints()
+    a.head:ClearAllPoints()
+    SetColorTexSafe(a.line1, r, g, b, alpha)
+    SetColorTexSafe(a.line2, r, g, b, alpha)
+    SetColorTexSafe(a.head, r, g, b, alpha)
+
+    if math.abs(x1 - x2) < 2 then
+        -- Straight vertical arrow
+        local topY = math.max(y1, y2) - 18
+        local botY = math.min(y1, y2) + 18
+        local h = math.max(4, topY - botY)
+        a.line1:SetSize(4, h)
+        a.line1:SetPoint("TOP", panel, "TOPLEFT", x1, topY)
+        a.line1:Show()
+        a.line2:Hide()
+        a.head:SetPoint("CENTER", panel, "TOPLEFT", x2, botY + 2)
+        a.head:Show()
+    elseif math.abs(y1 - y2) < 2 then
+        -- Straight horizontal arrow
+        local leftX = math.min(x1, x2) + 18
+        local rightX = math.max(x1, x2) - 18
+        local w = math.max(4, rightX - leftX)
+        a.line1:SetSize(w, 4)
+        a.line1:SetPoint("LEFT", panel, "TOPLEFT", leftX, y1)
+        a.line1:Show()
+        a.line2:Hide()
+        a.head:SetPoint("CENTER", panel, "TOPLEFT", (x2 > x1) and (rightX - 2) or (leftX + 2), y2)
+        a.head:Show()
+    else
+        -- L-shaped connector (horizontal then vertical)
+        local leftX = math.min(x1, x2)
+        local w = math.max(4, math.abs(x2 - x1))
+        a.line1:SetSize(w, 4)
+        a.line1:SetPoint("LEFT", panel, "TOPLEFT", leftX, y1)
+        a.line1:Show()
+
+        local topY = math.max(y1, y2)
+        local botY = math.min(y1, y2) + 18
+        local h = math.max(4, topY - botY)
+        a.line2:SetSize(4, h)
+        a.line2:SetPoint("TOP", panel, "TOPLEFT", x2, topY)
+        a.line2:Show()
+
+        a.head:SetPoint("CENTER", panel, "TOPLEFT", x2, botY + 2)
+        a.head:Show()
+    end
+end
+
+local function AcquirePreviewSlot(panel, slotIdx)
+    panel.slots = panel.slots or {}
+    local btn = panel.slots[slotIdx]
+    if not btn then
+        btn = CreateFrame("Button", nil, panel)
+        btn:SetSize(36, 36)
+
+        local icon = btn:CreateTexture(nil, "ARTWORK")
+        icon:SetPoint("TOPLEFT", 2, -2)
+        icon:SetPoint("BOTTOMRIGHT", -2, 2)
+        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        btn.icon = icon
+
+        local slotBorder = btn:CreateTexture(nil, "OVERLAY")
+        slotBorder:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+        slotBorder:SetPoint("TOPLEFT", -11, 11)
+        slotBorder:SetPoint("BOTTOMRIGHT", 11, -11)
+        btn.slotBorder = slotBorder
+
+        -- Crisp gold/green frame border for planned talents
+        local edge = {}
+        local function mkEdge()
+            local e = btn:CreateTexture(nil, "OVERLAY")
+            return e
+        end
+        edge.t = mkEdge(); edge.t:SetPoint("TOPLEFT", 0, 0); edge.t:SetPoint("TOPRIGHT", 0, 0); edge.t:SetHeight(2)
+        edge.b = mkEdge(); edge.b:SetPoint("BOTTOMLEFT", 0, 0); edge.b:SetPoint("BOTTOMRIGHT", 0, 0); edge.b:SetHeight(2)
+        edge.l = mkEdge(); edge.l:SetPoint("TOPLEFT", 0, 0); edge.l:SetPoint("BOTTOMLEFT", 0, 0); edge.l:SetWidth(2)
+        edge.r = mkEdge(); edge.r:SetPoint("TOPRIGHT", 0, 0); edge.r:SetPoint("BOTTOMRIGHT", 0, 0); edge.r:SetWidth(2)
+        btn.edges = edge
+
+        local rankBg = btn:CreateTexture(nil, "OVERLAY")
+        SetColorTexSafe(rankBg, 0.0, 0.0, 0.0, 0.88)
+        rankBg:SetSize(26, 13)
+        rankBg:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 4, -3)
+        btn.rankBg = rankBg
+
+        local rankTxt = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rankTxt:SetPoint("CENTER", rankBg, "CENTER", 0, 0)
+        local fontPath = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+        pcall(rankTxt.SetFont, rankTxt, fontPath, 10, "OUTLINE")
+        btn.rankTxt = rankTxt
+
+        btn:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            local showedBlizz = false
+            if self.classicTab and self.classicIndex and GameTooltip.SetTalent then
+                local ok = pcall(GameTooltip.SetTalent, GameTooltip, self.classicTab, self.classicIndex)
+                if ok then showedBlizz = true end
+            elseif self.spellID and GameTooltip.SetSpellByID then
+                local ok = pcall(GameTooltip.SetSpellByID, GameTooltip, self.spellID)
+                if ok then showedBlizz = true end
+            end
+            if not showedBlizz then
+                GameTooltip:AddLine(tostring(self.talentName or "Talent"), 1.0, 0.85, 0.1)
+                GameTooltip:AddLine(string.format("Live Rank: %d / %d", self.curRank or 0, self.maxRank or 1), 0.9, 0.9, 0.9)
+            end
+            if self.plannedRank and self.plannedRank > 0 then
+                GameTooltip:AddLine(" ")
+                local stepStr = (self.planStep and self.planStep > 0) and (" (Step #" .. tostring(self.planStep) .. ")") or ""
+                GameTooltip:AddLine(string.format("|cff00aeffWOWEngine Spec Plan:|r Target |cffffd100%d/%d|r%s",
+                    self.plannedRank, self.maxRank or 1, stepStr), 1, 1, 1)
+            end
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+
+        panel.slots[slotIdx] = btn
+    end
+    return btn
+end
+
+function TA:RefreshFullTreePreview(buildOverride, groupOverride)
+    local f = TA.fullTreeFrame
+    if not f then return end
+
+    local grp = tonumber(groupOverride) or TA.fullTreeGroup or TA:GetActiveSpecGroup()
+    TA.fullTreeGroup = grp
+    local build = buildOverride or TA:GetSelectedBuild(grp)
+    if not build then return end
+
+    local planTag = (NS.PlanBuilder and NS.PlanBuilder.GetPlanDisplayLabel) and NS.PlanBuilder:GetPlanDisplayLabel(grp) or "Spec Pre-Load"
+    local grpLabel = (grp == 2) and "Secondary Spec (Group 2)" or "Primary Spec (Group 1)"
+    f.title:SetText(string.format("|cff00aeffWOWEngine Full Talent Tree|r — |cffffd100%s|r", tostring(build.label or "Spec")))
+    f.sub:SetText(string.format("%s  |  Plan Focus: |cff00ff00%s|r  |  Hover any talent for full Blizzard tooltip", grpLabel, planTag))
+
+    -- Build planned target rank lookup from build.order
+    local plannedByTabName = { [1] = {}, [2] = {}, [3] = {} }
+    local plannedStepByTabName = { [1] = {}, [2] = {}, [3] = {} }
+    for stepIdx, step in ipairs(build.order or {}) do
+        local tabIdx, wantName, wantRank = step[1], string.lower(tostring(step[2] or "")), tonumber(step[3]) or 1
+        if plannedByTabName[tabIdx] then
+            plannedByTabName[tabIdx][wantName] = math.max(plannedByTabName[tabIdx][wantName] or 0, wantRank)
+            if not plannedStepByTabName[tabIdx][wantName] then
+                plannedStepByTabName[tabIdx][wantName] = stepIdx
+            end
+        end
+    end
+
+    local function lookupPlanned(tabIdx, talentName, maxRank)
+        local map = plannedByTabName[tabIdx]
+        if not map or not talentName then return 0, nil end
+        local low = string.lower(talentName)
+        if map[low] then
+            return math.min(map[low], maxRank or 1), plannedStepByTabName[tabIdx][low]
+        end
+        for wantKey, wantVal in pairs(map) do
+            if string.find(low, wantKey, 1, true) then
+                return math.min(wantVal, maxRank or 1), plannedStepByTabName[tabIdx][wantKey]
+            end
+        end
+        return 0, nil
+    end
+
+    local hasClassic = false
+    local tabSnaps = {}
+    if GetNumTalents and GetTalentInfo then
+        for tabIdx = 1, 3 do
+            local snap = SnapshotClassicTab(tabIdx)
+            if snap then
+                tabSnaps[tabIdx] = snap
+                hasClassic = true
+            end
+        end
+    end
+
+    local splitCounts = { 0, 0, 0 }
+
+    if hasClassic then
+        for tabIdx = 1, 3 do
+            local panel = f.panels[tabIdx]
+            local snap = tabSnaps[tabIdx]
+            ApplyBlizzardTreeBackground(panel, snap and snap.bgFile or nil)
+
+            local slotUsed = 0
+            local arrowUsed = 0
+            local plannedSum = 0
+
+            if snap then
+                local posCache = {}
+                for _, t in ipairs(snap.talents) do
+                    local plannedR, planStep = lookupPlanned(tabIdx, t.name, t.maxRank)
+                    plannedSum = plannedSum + plannedR
+
+                    local cx = 36 + (math.max(1, math.min(4, t.col)) - 1) * 58
+                    local cy = -48 - (math.max(1, math.min(7, t.tier)) - 1) * 54
+                    posCache[t.tier .. ":" .. t.col] = { x = cx, y = cy, planned = plannedR, cur = t.curRank, max = t.maxRank }
+
+                    slotUsed = slotUsed + 1
+                    local btn = AcquirePreviewSlot(panel, slotUsed)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("CENTER", panel, "TOPLEFT", cx, cy)
+                    btn.icon:SetTexture(t.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+                    btn.classicTab = tabIdx
+                    btn.classicIndex = t.index
+                    btn.spellID = nil
+                    btn.talentName = t.name
+                    btn.curRank = t.curRank
+                    btn.maxRank = t.maxRank
+                    btn.plannedRank = plannedR
+                    btn.planStep = planStep
+
+                    if plannedR > 0 then
+                        if btn.icon.SetDesaturated then btn.icon:SetDesaturated(false) end
+                        btn.icon:SetVertexColor(1, 1, 1, 1)
+                        local isDone = (t.curRank >= plannedR)
+                        local er, eg, eb = isDone and 0.15 or 1.0, isDone and 0.95 or 0.84, isDone and 0.25 or 0.10
+                        for _, e in pairs(btn.edges) do SetColorTexSafe(e, er, eg, eb, 1.0); e:Show() end
+                        if isDone then
+                            btn.rankTxt:SetText(string.format("|cff00ff00%d/%d|r", plannedR, t.maxRank))
+                        else
+                            btn.rankTxt:SetText(string.format("|cffffd100%d/%d|r", plannedR, t.maxRank))
+                        end
+                    else
+                        if btn.icon.SetDesaturated then btn.icon:SetDesaturated(true) end
+                        btn.icon:SetVertexColor(0.55, 0.55, 0.55, 0.85)
+                        for _, e in pairs(btn.edges) do e:Hide() end
+                        btn.rankTxt:SetText(string.format("|cff777777%d/%d|r", t.curRank, t.maxRank))
+                    end
+                    btn:Show()
+                end
+
+                -- Draw prerequisite arrows
+                for _, t in ipairs(snap.talents) do
+                    local childPos = posCache[t.tier .. ":" .. t.col]
+                    if childPos and t.prereqs then
+                        for _, pr in ipairs(t.prereqs) do
+                            local parPos = posCache[pr.tier .. ":" .. pr.col]
+                            if parPos then
+                                arrowUsed = arrowUsed + 1
+                                local ar, ag, ab, aa = 0.45, 0.45, 0.45, 0.65
+                                if childPos.planned > 0 then
+                                    if childPos.cur >= childPos.planned then
+                                        ar, ag, ab, aa = 0.15, 0.95, 0.25, 0.95
+                                    else
+                                        ar, ag, ab, aa = 1.0, 0.84, 0.10, 0.95
+                                    end
+                                end
+                                DrawPreviewPrereqArrow(panel, arrowUsed, parPos.x, parPos.y, childPos.x, childPos.y, ar, ag, ab, aa)
+                            end
+                        end
+                    end
+                end
+            end
+
+            splitCounts[tabIdx] = plannedSum
+            local tabName = GetClassicTabName(tabIdx)
+            panel.hdrTxt:SetText(string.format("|cffffd100%s|r  |cff00ff00(%d pts)|r", tabName, plannedSum))
+
+            for i = slotUsed + 1, #(panel.slots or {}) do panel.slots[i]:Hide() end
+            for i = arrowUsed + 1, #(panel.arrows or {}) do
+                panel.arrows[i].line1:Hide()
+                panel.arrows[i].line2:Hide()
+                panel.arrows[i].head:Hide()
+            end
+        end
+    else
+        -- Modern C_Traits fallback: render build steps cleanly across the 3 panels by step tab
+        local modernNodes = CollectModernTreeSnapshot()
+        for tabIdx = 1, 3 do
+            local panel = f.panels[tabIdx]
+            ApplyBlizzardTreeBackground(panel, nil)
+            local slotUsed = 0
+            local plannedSum = 0
+            for stepIdx, step in ipairs(build.order or {}) do
+                if step[1] == tabIdx and slotUsed < 28 then
+                    local wantName, wantRank = step[2], tonumber(step[3]) or 1
+                    local node, matchedName = MatchModernNodeByName(modernNodes, wantName)
+                    local maxR = (node and node.maxRank) or wantRank
+                    local curR = (node and node.curRank) or 0
+                    local plannedR = math.min(wantRank, maxR)
+                    plannedSum = plannedSum + plannedR
+
+                    slotUsed = slotUsed + 1
+                    local col = ((slotUsed - 1) % 4) + 1
+                    local row = math.floor((slotUsed - 1) / 4) + 1
+                    local cx = 36 + (col - 1) * 58
+                    local cy = -48 - (row - 1) * 54
+
+                    local btn = AcquirePreviewSlot(panel, slotUsed)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("CENTER", panel, "TOPLEFT", cx, cy)
+                    local iconTex = "Interface\\Icons\\INV_Misc_QuestionMark"
+                    local sid = nil
+                    if node and node.nodeInfo and node.nodeInfo.activeEntry and node.nodeInfo.activeEntry.entryID and C_Traits and C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo then
+                        local cfgID = GetActiveTraitConfigID(nil)
+                        local okE, ei = pcall(C_Traits.GetEntryInfo, cfgID, node.nodeInfo.activeEntry.entryID)
+                        if okE and ei and ei.definitionID then
+                            local okD, di = pcall(C_Traits.GetDefinitionInfo, ei.definitionID)
+                            if okD and di and di.spellID then
+                                sid = di.spellID
+                                if C_Spell and C_Spell.GetSpellTexture then
+                                    local okTx, tx = pcall(C_Spell.GetSpellTexture, sid)
+                                    if okTx and tx then iconTex = tx end
+                                elseif GetSpellTexture then
+                                    local okTx, tx = pcall(GetSpellTexture, sid)
+                                    if okTx and tx then iconTex = tx end
+                                end
+                            end
+                        end
+                    end
+                    btn.icon:SetTexture(iconTex)
+                    if btn.icon.SetDesaturated then btn.icon:SetDesaturated(false) end
+                    btn.icon:SetVertexColor(1, 1, 1, 1)
+                    btn.classicTab = nil
+                    btn.classicIndex = nil
+                    btn.spellID = sid
+                    btn.talentName = matchedName or wantName
+                    btn.curRank = curR
+                    btn.maxRank = maxR
+                    btn.plannedRank = plannedR
+                    btn.planStep = stepIdx
+
+                    local isDone = (curR >= plannedR)
+                    local er, eg, eb = isDone and 0.15 or 1.0, isDone and 0.95 or 0.84, isDone and 0.25 or 0.10
+                    for _, e in pairs(btn.edges) do SetColorTexSafe(e, er, eg, eb, 1.0); e:Show() end
+                    btn.rankTxt:SetText(string.format("%s%d/%d|r", isDone and "|cff00ff00" or "|cffffd100", plannedR, maxR))
+                    btn:Show()
+                end
+            end
+            splitCounts[tabIdx] = plannedSum
+            panel.hdrTxt:SetText(string.format("|cffffd100Tree %d|r  |cff00ff00(%d pts)|r", tabIdx, plannedSum))
+            for i = slotUsed + 1, #(panel.slots or {}) do panel.slots[i]:Hide() end
+            for i = 1, #(panel.arrows or {}) do
+                panel.arrows[i].line1:Hide()
+                panel.arrows[i].line2:Hide()
+                panel.arrows[i].head:Hide()
+            end
+        end
+    end
+
+    f.splitTxt:SetText(string.format("Planned Split: |cffffd100%d / %d / %d|r  (Green = Learned to Target | Gold = Planned Pick)",
+        splitCounts[1], splitCounts[2], splitCounts[3]))
+end
+
+function TA:OpenFullTreePreview(buildOverride, groupOverride)
+    if not TA.fullTreeFrame then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local f = CreateFrame("Frame", "WOWEngineFullTreeFrame", UIParent, template)
+        f:SetSize(792, 526)
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 10)
+        f:SetFrameStrata("DIALOG")
+        f:SetFrameLevel(152)
+        f:SetClampedToScreen(true)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+        if f.SetBackdrop then
+            pcall(function()
+                f:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                    tile = true, tileSize = 16, edgeSize = 14,
+                    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+                })
+                f:SetBackdropColor(0.04, 0.09, 0.19, 0.98)
+                f:SetBackdropBorderColor(0.95, 0.78, 0.18, 1.0)
+            end)
+        end
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineFullTreeFrame")
+        end
+
+        local headerBg = f:CreateTexture(nil, "ARTWORK")
+        headerBg:SetPoint("TOPLEFT", 4, -4)
+        headerBg:SetPoint("TOPRIGHT", -4, -4)
+        headerBg:SetHeight(46)
+        SetColorTexSafe(headerBg, 0.06, 0.16, 0.34, 0.96)
+
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 14, -10)
+        f.title = title
+
+        local sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+        f.sub = sub
+
+        local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+        -- 3 Side-by-Side Official Blizzard Talent Tree Panels
+        f.panels = {}
+        for tabIdx = 1, 3 do
+            local panel = CreateFrame("Frame", nil, f, template)
+            panel:SetSize(248, 424)
+            panel:SetPoint("TOPLEFT", 14 + (tabIdx - 1) * 258, -56)
+            if panel.SetBackdrop then
+                pcall(function()
+                    panel:SetBackdrop({
+                        edgeFile = "Interface\\Buttons\\WHITE8x8",
+                        edgeSize = 1,
+                    })
+                    panel:SetBackdropBorderColor(0.95, 0.78, 0.18, 0.85)
+                end)
+            end
+
+            -- 4-quadrant Blizzard talent tree background art
+            local tl = panel:CreateTexture(nil, "BACKGROUND")
+            tl:SetPoint("TOPLEFT", 1, -24)
+            tl:SetSize(196, 256)
+            local tr = panel:CreateTexture(nil, "BACKGROUND")
+            tr:SetPoint("TOPLEFT", tl, "TOPRIGHT", 0, 0)
+            tr:SetPoint("TOPRIGHT", -1, -24)
+            tr:SetHeight(256)
+            local bl = panel:CreateTexture(nil, "BACKGROUND")
+            bl:SetPoint("TOPLEFT", tl, "BOTTOMLEFT", 0, 0)
+            bl:SetPoint("BOTTOMLEFT", 1, 1)
+            bl:SetWidth(196)
+            local br = panel:CreateTexture(nil, "BACKGROUND")
+            br:SetPoint("TOPLEFT", bl, "TOPRIGHT", 0, 0)
+            br:SetPoint("BOTTOMRIGHT", -1, 1)
+            panel.bgQuads = { tl = tl, tr = tr, bl = bl, br = br }
+
+            -- Dark readability veil over background art so icons & arrows pop cleanly
+            local veil = panel:CreateTexture(nil, "BORDER")
+            SetColorTexSafe(veil, 0.02, 0.05, 0.10, 0.42)
+            veil:SetPoint("TOPLEFT", 1, -24)
+            veil:SetPoint("BOTTOMRIGHT", -1, 1)
+
+            local hdrBar = panel:CreateTexture(nil, "ARTWORK")
+            SetColorTexSafe(hdrBar, 0.06, 0.16, 0.34, 0.96)
+            hdrBar:SetPoint("TOPLEFT", 1, -1)
+            hdrBar:SetPoint("TOPRIGHT", -1, -1)
+            hdrBar:SetHeight(23)
+
+            local hdrTxt = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            hdrTxt:SetPoint("CENTER", hdrBar, "CENTER", 0, 0)
+            panel.hdrTxt = hdrTxt
+
+            f.panels[tabIdx] = panel
+        end
+
+        -- Footer Controls: [<] [Switch Spec] [>] + Split Summary + Close
+        local prevSpecBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        prevSpecBtn:SetSize(24, 24)
+        prevSpecBtn:SetPoint("BOTTOMLEFT", 14, 12)
+        prevSpecBtn:SetText("<")
+        prevSpecBtn:SetScript("OnClick", function() TA:CycleBuild(-1, TA.fullTreeGroup) end)
+
+        local swSpecBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        swSpecBtn:SetSize(96, 24)
+        swSpecBtn:SetPoint("LEFT", prevSpecBtn, "RIGHT", 2, 0)
+        swSpecBtn:SetText("Switch Spec")
+        swSpecBtn:SetScript("OnClick", function() TA:CycleBuild(1, TA.fullTreeGroup) end)
+
+        local nextSpecBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        nextSpecBtn:SetSize(24, 24)
+        nextSpecBtn:SetPoint("LEFT", swSpecBtn, "RIGHT", 2, 0)
+        nextSpecBtn:SetText(">")
+        nextSpecBtn:SetScript("OnClick", function() TA:CycleBuild(1, TA.fullTreeGroup) end)
+
+        local splitTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        splitTxt:SetPoint("LEFT", nextSpecBtn, "RIGHT", 14, 0)
+        splitTxt:SetJustifyH("LEFT")
+        f.splitTxt = splitTxt
+
+        local closeFoot = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        closeFoot:SetSize(84, 24)
+        closeFoot:SetPoint("BOTTOMRIGHT", -14, 12)
+        closeFoot:SetText("Close")
+        closeFoot:SetScript("OnClick", function() f:Hide() end)
+
+        TA.fullTreeFrame = f
+    end
+
+    TA:RefreshFullTreePreview(buildOverride, groupOverride)
+    TA.fullTreeFrame:Show()
+    TA.fullTreeFrame:Raise()
+end
+
 function TA:EnsureTalentBar()
     local parent = TA:GetTalentParentFrame()
     if not parent then return nil end
@@ -1212,7 +2001,7 @@ function TA:EnsureTalentBar()
     if not TA.bar then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local bar = CreateFrame("Frame", "WOWEngineTalentBar", parent, template)
-        bar:SetSize(384, 44)
+        bar:SetSize(464, 44)
         if bar.SetBackdrop then
             pcall(function()
                 bar:SetBackdrop({
@@ -1234,7 +2023,7 @@ function TA:EnsureTalentBar()
         bar.specPrevBtn = specPrevBtn
 
         local specBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-        specBtn:SetSize(206, 20)
+        specBtn:SetSize(200, 20)
         specBtn:SetPoint("LEFT", specPrevBtn, "RIGHT", 2, 0)
         specBtn:SetScript("OnClick", function() TA:CycleBuild(1) end)
         bar.specBtn = specBtn
@@ -1246,9 +2035,18 @@ function TA:EnsureTalentBar()
         specNextBtn:SetScript("OnClick", function() TA:CycleBuild(1) end)
         bar.specNextBtn = specNextBtn
 
+        local fullTreeBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+        fullTreeBtn:SetSize(94, 20)
+        fullTreeBtn:SetPoint("LEFT", specNextBtn, "RIGHT", 6, 0)
+        fullTreeBtn:SetText("View Full Tree")
+        fullTreeBtn:SetScript("OnClick", function()
+            pcall(function() TA:OpenFullTreePreview() end)
+        end)
+        bar.fullTreeBtn = fullTreeBtn
+
         local capsBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-        capsBtn:SetSize(116, 20)
-        capsBtn:SetPoint("LEFT", specNextBtn, "RIGHT", 6, 0)
+        capsBtn:SetSize(100, 20)
+        capsBtn:SetPoint("LEFT", fullTreeBtn, "RIGHT", 6, 0)
         capsBtn:SetText("Stat Caps")
         capsBtn:SetScript("OnClick", function()
             if NS.StatCapsUI and NS.StatCapsUI.Toggle then NS.StatCapsUI:Toggle() end
@@ -1256,7 +2054,7 @@ function TA:EnsureTalentBar()
 
         local nextTxt = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         nextTxt:SetPoint("BOTTOMLEFT", 8, 5)
-        nextTxt:SetWidth(368)
+        nextTxt:SetWidth(448)
         nextTxt:SetJustifyH("LEFT")
         bar.nextTxt = nextTxt
 
@@ -1362,6 +2160,10 @@ end
 function TA:UpdateTalentHighlight()
     local nextPick, build = TA:FindNextRecommendedTalent()
     TA.currentNextPick = nextPick
+
+    if TA.fullTreeFrame and TA.fullTreeFrame:IsShown() then
+        pcall(function() TA:RefreshFullTreePreview() end)
+    end
 
     local bar = TA:EnsureTalentBar()
     if bar then
@@ -1523,6 +2325,12 @@ taEvents:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PLAYER_LOGIN" then
         if _G.PlayerSpellsFrame or TA:GetTalentParentFrame() then
             pcall(function() TA:HookTalentFrame() end)
+        end
+    elseif event == "ACTIVE_TALENT_GROUP_CHANGED" then
+        TA.fullTreeGroup = TA:GetActiveSpecGroup()
+        pcall(function() TA:UpdateTalentHighlight() end)
+        if NS.StatCapsUI and NS.StatCapsUI.Refresh then
+            pcall(function() NS.StatCapsUI:Refresh() end)
         end
     else
         pcall(function() TA:UpdateTalentHighlight() end)

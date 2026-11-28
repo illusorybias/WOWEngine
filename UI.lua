@@ -177,7 +177,14 @@ SlashCmdList["WOWENGINEHELP"] = function(msg)
         elseif cmd == "stats" or cmd == "caps" or cmd == "statcaps" then
             if NS.StatCapsUI and NS.StatCapsUI.Toggle then NS.StatCapsUI:Toggle() end
         elseif cmd == "plan" or cmd == "planbuilder" then
-            if NS.PlanBuilder and NS.PlanBuilder.Show then NS.PlanBuilder:Show() end
+            local sub = string.lower(C.Trim(rest or ""))
+            if sub == "secondary" or sub == "dual" or sub == "2" then
+                if NS.PlanBuilder and NS.PlanBuilder.ShowSecondaryWizard then
+                    NS.PlanBuilder:ShowSecondaryWizard()
+                end
+            elseif NS.PlanBuilder and NS.PlanBuilder.Show then
+                NS.PlanBuilder:Show()
+            end
         elseif cmd == "nag" or cmd == "pointnag" then
             if NS.PointNagBanner and NS.PointNagBanner.HandleSlashCommand then
                 NS.PointNagBanner:HandleSlashCommand(rest)
