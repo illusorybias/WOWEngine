@@ -24,6 +24,7 @@ jobs:
           TOC_LINE=$(grep -i "^## Interface:" WOWEngine.toc || true)
           echo "Current TOC: $TOC_LINE"
 
+          FOREVER_VER=$(curl -s "https://us.version.battle.net/v2/products/wowf/versions" | awk -F'|' '$1=="us"{print $6}')
           RETAIL_VER=$(curl -s "https://us.version.battle.net/v2/products/wow/versions" | awk -F'|' '$1=="us"{print $6}')
           CLASSIC_VER=$(curl -s "https://us.version.battle.net/v2/products/wow_classic_era/versions" | awk -F'|' '$1=="us"{print $6}')
 
@@ -31,14 +32,21 @@ jobs:
             echo "$1" | awk -F'.' '{printf "%d%02d%02d", $1, $2, $3}'
           }
 
+          FOREVER_IFACE=$(to_interface "$FOREVER_VER")
           RETAIL_IFACE=$(to_interface "$RETAIL_VER")
           CLASSIC_IFACE=$(to_interface "$CLASSIC_VER")
 
+          echo "Live WoW Forever: $FOREVER_VER ($FOREVER_IFACE)"
           echo "Live Retail: $RETAIL_VER ($RETAIL_IFACE)"
           echo "Live Classic Era: $CLASSIC_VER ($CLASSIC_IFACE)"
 
           CHANGED="false"
           MISSING=""
+
+          if [ -n "$FOREVER_IFACE" ] && ! echo "$TOC_LINE" | grep -q "$FOREVER_IFACE"; then
+            CHANGED="true"
+            MISSING="${MISSING}WoW Forever: ${FOREVER_VER} (Interface ${FOREVER_IFACE})\n"
+          fi
 
           if [ -n "$RETAIL_IFACE" ] && ! echo "$TOC_LINE" | grep -q "$RETAIL_IFACE"; then
             CHANGED="true"
