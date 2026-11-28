@@ -21,11 +21,21 @@ TA.BUILDS = {
             priority = "Defense Cap > Spell/Melee Hit Cap > Stamina > Intellect/Spell Power > Block/Mitigation",
             caps = { defense = 440, meleeHit = 8, spellHit = 16, critTarget = 10 },
             order = {
-                { 2, "Redoubt", 5 }, { 2, "Precision", 3 }, { 2, "Toughness", 5 },
-                { 2, "Blessing of Kings", 1 }, { 2, "Improved Righteous Fury", 3 }, { 2, "Shield Specialization", 3 },
-                { 2, "Anticipation", 5 }, { 2, "Blessing of Sanctuary", 1 }, { 2, "Reckoning", 5 },
-                { 2, "One-Handed Weapon Specialization", 5 }, { 2, "Holy Shield", 1 },
-                { 3, "Benediction", 5 }, { 3, "Deflection", 5 }, { 3, "Seal of Command", 1 },
+                -- Tab 2 Protection (39 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 2, "Redoubt", 5 }, { 2, "Divine Intellect", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 2, "Precision", 3 }, { 2, "Sacred Duty", 2 },
+                -- Row 3 (8 pts -> 23 total)
+                { 2, "Toughness", 5 }, { 2, "Shield Specialization", 2 }, { 2, "Templar's Bulwark", 1 },
+                -- Row 4 (8 pts -> 31 total)
+                { 2, "Improved Righteous Fury", 3 }, { 2, "Anticipation", 5 },
+                -- Row 5 (4 pts -> 35 total)
+                { 2, "Holy Shield", 1 }, { 2, "Reckoning", 3 },
+                -- Row 6 (3 pts -> 38 total) & Row 7 (1 pt -> 39 total)
+                { 2, "Iron Creed", 3 }, { 2, "Shieldsworn", 1 },
+                -- Tab 3 Retribution (12 pts): Row 1 -> Row 2
+                { 3, "Benediction", 5 }, { 3, "Deflection", 5 }, { 3, "Improved Judgement", 2 },
             },
         },
         {
@@ -34,22 +44,48 @@ TA.BUILDS = {
             priority = "Melee Hit Cap (8%) > Strength > Crit > Attack Power > Stamina",
             caps = { meleeHit = 8, spellHit = 0, critTarget = 20 },
             order = {
-                { 3, "Benediction", 5 }, { 3, "Improved Judgement", 2 }, { 3, "Deflection", 3 },
-                { 3, "Seal of Command", 1 }, { 3, "Pursuit of Justice", 2 }, { 3, "Conviction", 5 },
-                { 3, "Two-Handed Weapon Specialization", 3 }, { 3, "Sanctity Aura", 1 }, { 3, "Vengeance", 5 },
-                { 3, "Repentance", 1 }, { 2, "Redoubt", 5 }, { 2, "Precision", 3 },
-                { 1, "Divine Strength", 5 }, { 1, "Divine Intellect", 5 },
+                -- Tab 3 Retribution (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Benediction", 5 }, { 3, "Deflection", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 3, "Improved Judgement", 2 }, { 3, "Conviction", 3 },
+                -- Row 3 (3 pts -> 18 total)
+                { 3, "Seal of Command", 1 }, { 3, "Pursuit of Justice", 2 },
+                -- Row 4 (4 pts -> 22 total)
+                { 3, "Two-Handed Weapon Specialization", 3 }, { 3, "Sacred Arbiter", 1 },
+                -- Row 5 (4 pts -> 26 total)
+                { 3, "Vengeance", 3 }, { 3, "Repentance", 1 },
+                -- Row 6 (4 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 3, "Champion of the Light", 4 }, { 3, "Unsealed Wrath", 1 },
+                -- Tab 1 Holy (12 pts): Row 1 -> Row 2
+                { 1, "Divine Strength", 5 }, { 1, "Spiritual Focus", 5 }, { 1, "Improved Seals", 2 },
+                -- Tab 2 Protection (8 pts): Row 1 -> Row 2
+                { 2, "Redoubt", 5 }, { 2, "Precision", 3 },
             },
         },
         {
-            id = "pal_pvp", label = "Paladin PvP (Reckoning / Ret)", role = "PvP",
+            id = "pal_pvp", label = "Paladin PvP (Reckoning / Ret 0/25/26)", role = "PvP",
             weapon = "Slow 2H Weapon (or 1H + Shield swap vs Melee)",
             priority = "PvP Hit (5%) > Stamina > Strength > Crit > Intellect",
             caps = { meleeHit = 5, spellHit = 3, critTarget = 20 },
             order = {
-                { 3, "Benediction", 5 }, { 3, "Deflection", 5 }, { 3, "Seal of Command", 1 },
-                { 3, "Pursuit of Justice", 2 }, { 3, "Conviction", 5 }, { 3, "Repentance", 1 },
-                { 2, "Redoubt", 5 }, { 2, "Precision", 3 }, { 2, "Guardian's Favor", 2 },
+                -- Tab 3 Retribution (26 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Benediction", 5 }, { 3, "Deflection", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 3, "Improved Judgement", 2 }, { 3, "Conviction", 3 },
+                -- Row 3 (5 pts -> 20 total)
+                { 3, "Seal of Command", 1 }, { 3, "Pursuit of Justice", 2 }, { 3, "Vindication", 2 },
+                -- Row 4 (5 pts -> 25 total) & Row 5 (1 pt -> 26 total)
+                { 3, "Eye for an Eye", 2 }, { 3, "Two-Handed Weapon Specialization", 3 },
+                { 3, "Repentance", 1 },
+                -- Tab 2 Protection (25 pts): Row 1 -> Row 5
+                -- Row 1 (10 pts)
+                { 2, "Redoubt", 5 }, { 2, "Divine Intellect", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 2, "Precision", 3 }, { 2, "Guardian's Favor", 2 },
+                -- Row 3 (5 pts -> 20 total) & Row 5 (5 pts -> 25 total)
+                { 2, "Improved Hammer of Justice", 3 }, { 2, "Toughness", 2 },
                 { 2, "Reckoning", 5 },
             },
         },
@@ -61,11 +97,22 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16% Raid / 3% PvP) > Shadow Spell Power > Stamina > Intellect > Spirit",
             caps = { spellHit = 16, critTarget = 12 },
             order = {
+                -- Tab 1 Affliction (40 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (12 pts)
                 { 1, "Improved Corruption", 5 }, { 1, "Suppression", 5 }, { 1, "Improved Life Tap", 2 },
-                { 1, "Improved Drain Soul", 2 }, { 1, "Improved Curse of Agony", 3 }, { 1, "Fel Concentration", 5 },
-                { 1, "Grim Reach", 2 }, { 1, "Nightfall", 2 }, { 1, "Siphon Life", 1 },
-                { 1, "Shadow Mastery", 5 }, { 1, "Dark Pact", 1 },
-                { 2, "Improved Healthstone", 2 }, { 2, "Demonic Embrace", 5 }, { 2, "Improved Voidwalker", 3 },
+                -- Row 2 (7 pts -> 19 total)
+                { 1, "Improved Drains", 3 }, { 1, "Grim Reach", 2 }, { 1, "Soul Harvest", 2 },
+                -- Row 3 (9 pts -> 28 total)
+                { 1, "Improved Bane of Agony", 2 }, { 1, "Fel Concentration", 3 },
+                { 1, "Amplify Curse", 1 }, { 1, "Pandemic", 3 },
+                -- Row 4 (2 pts -> 30 total)
+                { 1, "Nightfall", 2 },
+                -- Row 5 (4 pts -> 34 total)
+                { 1, "Siphon Life", 1 }, { 1, "Soul Siphon", 3 },
+                -- Row 6 (5 pts -> 39 total) & Row 7 (1 pt -> 40 total)
+                { 1, "Shadow Mastery", 5 }, { 1, "Wrack", 1 },
+                -- Tab 2 Demonology (11 pts): Row 1 -> Row 2
+                { 2, "Demonic Embrace", 5 }, { 2, "Improved Voidwalker", 3 }, { 2, "Fel Vitality", 3 },
             },
         },
         {
@@ -74,10 +121,23 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16%) > Spell Power > Stamina > Intellect > Crit",
             caps = { spellHit = 16, critTarget = 14 },
             order = {
-                { 2, "Demonic Embrace", 5 }, { 2, "Improved Voidwalker", 3 }, { 2, "Fel Intellect", 5 },
-                { 2, "Fel Domination", 1 }, { 2, "Fel Stamina", 5 }, { 2, "Master Summoner", 2 },
-                { 2, "Unholy Power", 5 }, { 2, "Demonic Sacrifice", 1 }, { 2, "Master Demonologist", 5 },
-                { 2, "Soul Link", 1 }, { 1, "Improved Corruption", 5 },
+                -- Tab 2 Demonology (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 2, "Demonic Embrace", 5 }, { 2, "Unholy Power", 5 },
+                -- Row 2 (6 pts -> 16 total)
+                { 2, "Fel Vitality", 3 }, { 2, "Improved Voidwalker", 3 },
+                -- Row 3 (3 pts -> 19 total)
+                { 2, "Master Summoner", 2 }, { 2, "Demonic Sacrifice", 1 },
+                -- Row 4 (4 pts -> 23 total)
+                { 2, "Fel Domination", 1 }, { 2, "Demonic Brand", 3 },
+                -- Row 5 (4 pts -> 27 total)
+                { 2, "Soul Link", 1 }, { 2, "Demonic Knowledge", 3 },
+                -- Row 6 (3 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 2, "Master Demonologist", 3 }, { 2, "Demonic Pact", 1 },
+                -- Tab 1 Affliction (9 pts): Row 1 -> Row 2
+                { 1, "Improved Corruption", 5 }, { 1, "Improved Life Tap", 2 }, { 1, "Grim Reach", 2 },
+                -- Tab 3 Destruction (11 pts): Row 1 -> Row 2
+                { 3, "Improved Shadow Bolt", 5 }, { 3, "Bane", 5 }, { 3, "Cataclysm", 1 },
             },
         },
         {
@@ -86,9 +146,26 @@ TA.BUILDS = {
             priority = "Spell Hit (3% PvP) > Stamina > Spell Power > Intellect",
             caps = { spellHit = 3, critTarget = 12 },
             order = {
-                { 1, "Improved Corruption", 5 }, { 1, "Fel Concentration", 5 }, { 1, "Nightfall", 2 },
-                { 2, "Demonic Embrace", 5 }, { 2, "Fel Domination", 1 }, { 2, "Master Summoner", 2 },
-                { 2, "Unholy Power", 5 }, { 2, "Soul Link", 1 },
+                -- Tab 1 Affliction (20 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 1, "Improved Corruption", 5 }, { 1, "Suppression", 3 }, { 1, "Improved Life Tap", 2 },
+                -- Row 2 (5 pts -> 15 total)
+                { 1, "Grim Reach", 2 }, { 1, "Improved Drains", 3 },
+                -- Row 3 (3 pts -> 18 total) & Row 4 (2 pts -> 20 total)
+                { 1, "Fel Concentration", 3 }, { 1, "Nightfall", 2 },
+                -- Tab 2 Demonology (31 pts): Row 1 -> Row 6
+                -- Row 1 (10 pts)
+                { 2, "Demonic Embrace", 5 }, { 2, "Unholy Power", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 2, "Fel Vitality", 3 }, { 2, "Demonic Aegis", 2 },
+                -- Row 3 (2 pts -> 17 total)
+                { 2, "Master Summoner", 2 },
+                -- Row 4 (3 pts -> 20 total)
+                { 2, "Fel Domination", 1 }, { 2, "Demonic Brand", 2 },
+                -- Row 5 (7 pts -> 27 total)
+                { 2, "Soul Link", 1 }, { 2, "Improved Felhunter", 3 }, { 2, "Demonic Knowledge", 3 },
+                -- Row 6 (4 pts -> 31 total)
+                { 2, "Master Demonologist", 4 },
             },
         },
     },
@@ -99,11 +176,22 @@ TA.BUILDS = {
             priority = "Melee Hit Cap (8%) > Agility > Strength > Stamina > Armor (Bear)",
             caps = { meleeHit = 8, defense = 415, critTarget = 25 },
             order = {
-                { 2, "Ferocity", 5 }, { 2, "Feral Swiftness", 2 }, { 2, "Feral Aggression", 3 },
-                { 2, "Sharpened Claws", 3 }, { 2, "Feral Charge", 1 }, { 2, "Predatory Strikes", 3 },
-                { 2, "Blood Frenzy", 2 }, { 2, "Savage Fury", 2 }, { 2, "Faerie Fire (Feral)", 1 },
-                { 2, "Heart of the Wild", 5 }, { 2, "Leader of the Pack", 1 },
-                { 3, "Furor", 5 }, { 3, "Natural Weapons", 5 }, { 3, "Omen of Clarity", 1 },
+                -- Tab 2 Feral (39 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 2, "Ferocity", 5 }, { 2, "Furor", 5 },
+                -- Row 2 (8 pts -> 18 total)
+                { 2, "Feral Swiftness", 2 }, { 2, "Thick Hide", 3 }, { 2, "Feral Instinct", 3 },
+                -- Row 3 (5 pts -> 23 total)
+                { 2, "Sharpened Claws", 2 }, { 2, "Feral Charge", 1 }, { 2, "Savage Fury", 2 },
+                -- Row 4 (6 pts -> 29 total)
+                { 2, "Predatory Strikes", 3 }, { 2, "Blood Frenzy", 2 }, { 2, "Lacerate", 1 },
+                -- Row 5 (3 pts -> 32 total)
+                { 2, "Leader of the Pack", 1 }, { 2, "Natural Instinct", 2 },
+                -- Row 6 (6 pts -> 38 total) & Row 7 (1 pt -> 39 total)
+                { 2, "Rend and Tear", 5 }, { 2, "Natural Reaction", 1 }, { 2, "Primal Bite", 1 },
+                -- Tab 3 Restoration (12 pts): Row 1 -> Row 2
+                { 3, "Heart of the Wild", 5 }, { 3, "Nature's Focus", 5 },
+                { 3, "Natural Shapeshifter", 2 },
             },
         },
         {
@@ -112,18 +200,48 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16%) > Spell Crit > Spell Power > Intellect",
             caps = { spellHit = 16, critTarget = 20 },
             order = {
-                { 1, "Improved Wrath", 5 }, { 1, "Improved Moonfire", 5 }, { 1, "Vengeance", 5 },
-                { 1, "Nature's Reach", 2 }, { 1, "Moonfury", 5 }, { 1, "Moonkin Form", 1 },
+                -- Tab 1 Balance (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 1, "Starlight Wrath", 5 }, { 1, "Genesis", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 1, "Moonglow", 3 }, { 1, "Nature's Majesty", 2 },
+                -- Row 3 (1 pt -> 16 total)
+                { 1, "Nature's Splendor", 1 },
+                -- Row 4 (8 pts -> 24 total)
+                { 1, "Vengeance", 5 }, { 1, "Improved Starfire", 2 }, { 1, "Insect Swarm", 1 },
+                -- Row 5 (4 pts -> 28 total)
+                { 1, "Nature's Grace", 1 }, { 1, "Eclipse", 3 },
+                -- Row 6 (2 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 1, "Dreamstate", 2 }, { 1, "Moonkin Form", 1 },
+                -- Tab 3 Restoration (20 pts): Row 1 -> Row 2 -> Row 3
+                { 3, "Heart of the Wild", 5 }, { 3, "Nature's Focus", 5 },
+                { 3, "Reflection", 3 }, { 3, "Naturalist", 5 },
+                { 3, "Subtlety", 2 },
             },
         },
         {
-            id = "druid_pvp", label = "Druid PvP (Hybrid Flag Carrier)", role = "PvP",
+            id = "druid_pvp", label = "Druid PvP (Hybrid Flag Carrier 0/22/29)", role = "PvP",
             weapon = "2H Staff (Stamina / Intellect / Healing)",
             priority = "Stamina > Intellect > Healing/Spell Power > Armor",
             caps = { meleeHit = 5, spellHit = 3, critTarget = 15 },
             order = {
-                { 2, "Feral Swiftness", 2 }, { 2, "Feral Charge", 1 }, { 3, "Furor", 5 },
-                { 3, "Nature's Swiftness", 1 }, { 1, "Nature's Grasp", 1 },
+                -- Tab 2 Feral (22 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 2, "Ferocity", 5 }, { 2, "Furor", 5 },
+                -- Row 2 (7 pts -> 17 total)
+                { 2, "Feral Swiftness", 2 }, { 2, "Brutal Impact", 2 }, { 2, "Thick Hide", 3 },
+                -- Row 3 (5 pts -> 22 total)
+                { 2, "Feral Charge", 1 }, { 2, "Sharpened Claws", 2 }, { 2, "Savage Fury", 2 },
+                -- Tab 3 Restoration (29 pts): Row 1 -> Row 5
+                -- Row 1 (10 pts)
+                { 3, "Heart of the Wild", 5 }, { 3, "Nature's Focus", 5 },
+                -- Row 2 (6 pts -> 16 total)
+                { 3, "Reflection", 3 }, { 3, "Natural Shapeshifter", 3 },
+                -- Row 3 (5 pts -> 21 total)
+                { 3, "Gift of Nature", 5 },
+                -- Row 4 (7 pts -> 28 total) & Row 5 (1 pt -> 29 total)
+                { 3, "Improved Rejuvenation", 3 }, { 3, "Swiftmend", 1 }, { 3, "Tranquil Spirit", 3 },
+                { 3, "Nature's Swiftness", 1 },
             },
         },
     },
@@ -185,20 +303,46 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16% Raid / 6% Solo) > Frost Spell Power > Intellect > Crit",
             caps = { spellHit = 16, critTarget = 18 },
             order = {
-                { 3, "Improved Frostbolt", 5 }, { 3, "Elemental Precision", 3 }, { 3, "Ice Shards", 5 },
-                { 3, "Frostbite", 3 }, { 3, "Piercing Ice", 3 }, { 3, "Cold Snap", 1 },
-                { 3, "Shatter", 5 }, { 3, "Ice Block", 1 }, { 3, "Winter's Chill", 5 },
-                { 3, "Ice Barrier", 1 },
+                -- Tab 3 Frost (48 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (8 pts)
+                { 3, "Improved Frostbolt", 5 }, { 3, "Precision", 3 },
+                -- Row 2 (10 pts -> 18 total)
+                { 3, "Ice Shards", 5 }, { 3, "Improved Frost Nova", 2 }, { 3, "Permafrost", 3 },
+                -- Row 3 (7 pts -> 25 total)
+                { 3, "Improved Blizzard", 3 }, { 3, "Frost Channeling", 3 }, { 3, "Ice Lance", 1 },
+                -- Row 4 (6 pts -> 31 total)
+                { 3, "Ice Block", 1 }, { 3, "Shatter", 3 }, { 3, "Arctic Reach", 2 },
+                -- Row 5 (6 pts -> 37 total)
+                { 3, "Cold Snap", 1 }, { 3, "Improved Cone of Cold", 3 }, { 3, "Fingers of Frost", 2 },
+                -- Row 6 (5 pts -> 42 total) & Row 7 (1 pt -> 43 total)
+                { 3, "Winter's Chill", 5 }, { 3, "Ice Barrier", 1 },
+                -- Remaining Frost Row 1-2 picks (5 pts -> 48 total)
+                { 3, "Frostbite", 3 }, { 3, "Frost Warding", 2 },
             },
         },
         {
-            id = "arc_pve", label = "Arcane / Fire Raid", role = "Caster DPS",
+            id = "arc_pve", label = "Arcane / Fire Raid (31/20/0)", role = "Caster DPS",
             weapon = "2H Staff or 1H + Off-Hand (Spell Power / Crit)",
             priority = "Spell Hit Cap (16%) > Spell Power > Spell Crit > Intellect",
             caps = { spellHit = 16, critTarget = 22 },
             order = {
-                { 1, "Arcane Subtlety", 2 }, { 1, "Arcane Focus", 5 }, { 1, "Arcane Concentration", 5 },
-                { 1, "Arcane Mind", 5 }, { 1, "Presence of Mind", 1 }, { 1, "Arcane Power", 1 },
+                -- Tab 1 Arcane (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (5 pts -> unlocks Row 2)
+                { 1, "Improved Channeling", 5 },
+                -- Row 2 (9 pts -> 14 total)
+                { 1, "Arcane Subtlety", 2 }, { 1, "Arcane Concentration", 5 }, { 1, "Missile Barrage", 2 },
+                -- Row 3 (4 pts -> 18 total)
+                { 1, "Arcane Impact", 3 }, { 1, "Arcane Blast", 1 },
+                -- Row 4 (4 pts -> 22 total)
+                { 1, "Arcane Meditation", 3 }, { 1, "Arcane Wrath", 1 },
+                -- Row 5 (5 pts -> 27 total)
+                { 1, "Presence of Mind", 1 }, { 1, "Arcane Mind", 4 },
+                -- Row 6 (3 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 1, "Arcane Instability", 3 }, { 1, "Arcane Power", 1 },
+                -- Tab 2 Fire (20 pts): Row 1 -> Row 2 -> Row 3
+                { 2, "Incineration", 5 }, { 2, "Accelerant", 5 },
+                { 2, "Ignite", 5 }, { 2, "Flame Throwing", 2 },
+                { 2, "Pyroblast", 1 }, { 2, "Improved Fire Blast", 2 },
             },
         },
         {
@@ -207,8 +351,19 @@ TA.BUILDS = {
             priority = "Spell Hit (3% PvP) > Stamina > Intellect > Spell Power > Crit",
             caps = { spellHit = 3, critTarget = 18 },
             order = {
-                { 3, "Improved Frostbolt", 5 }, { 3, "Ice Shards", 5 }, { 3, "Frostbite", 3 },
-                { 3, "Cold Snap", 1 }, { 3, "Shatter", 5 }, { 3, "Ice Block", 1 }, { 3, "Ice Barrier", 1 },
+                -- Tab 3 Frost (40 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (8 pts)
+                { 3, "Improved Frostbolt", 5 }, { 3, "Precision", 3 },
+                -- Row 2 (10 pts -> 18 total)
+                { 3, "Ice Shards", 5 }, { 3, "Frostbite", 3 }, { 3, "Improved Frost Nova", 2 },
+                -- Row 3 (4 pts -> 22 total)
+                { 3, "Ice Lance", 1 }, { 3, "Frost Channeling", 3 },
+                -- Row 4 (6 pts -> 28 total)
+                { 3, "Ice Block", 1 }, { 3, "Shatter", 3 }, { 3, "Arctic Reach", 2 },
+                -- Row 5 (6 pts -> 34 total)
+                { 3, "Cold Snap", 1 }, { 3, "Fingers of Frost", 2 }, { 3, "Improved Cone of Cold", 3 },
+                -- Row 6 (5 pts -> 39 total) & Row 7 (1 pt -> 40 total)
+                { 3, "Winter's Chill", 5 }, { 3, "Ice Barrier", 1 },
             },
         },
     },
@@ -219,10 +374,24 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16% Raid / 10% Shadow Focus) > Shadow Power > Spirit > Intellect",
             caps = { spellHit = 16, critTarget = 12 },
             order = {
-                { 1, "Wand Specialization", 5 }, { 3, "Spirit Tap", 5 }, { 3, "Shadow Focus", 5 },
-                { 3, "Mind Flay", 1 }, { 3, "Improved Shadow Word: Pain", 2 }, { 3, "Shadow Reach", 3 },
-                { 3, "Shadow Weaving", 5 }, { 3, "Vampiric Embrace", 1 }, { 3, "Darkness", 5 },
-                { 3, "Shadowform", 1 },
+                -- Tab 3 Shadow (38 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Spirit Tap", 5 }, { 3, "Shadow Focus", 5 },
+                -- Row 2 (9 pts -> 19 total)
+                { 3, "Improved Shadow Word: Pain", 2 }, { 3, "Improved Mind Blast", 5 }, { 3, "Shadow Reach", 2 },
+                -- Row 3 (3 pts -> 22 total)
+                { 3, "Mind Flay", 1 }, { 3, "Improved Mind Flay", 2 },
+                -- Row 4 (4 pts -> 26 total)
+                { 3, "Vampiric Embrace", 1 }, { 3, "Shadow Weaving", 3 },
+                -- Row 5 (2 pts -> 28 total)
+                { 3, "Devouring Contagion", 2 },
+                -- Row 6 (5 pts -> 33 total) & Row 7 (1 pt -> 34 total)
+                { 3, "Darkness", 5 }, { 3, "Shadowform", 1 },
+                -- Remaining Shadow points (4 pts -> 38 total)
+                { 3, "Dark Inspiration", 4 },
+                -- Tab 1 Discipline (13 pts): Row 1 -> Row 2 -> Row 3
+                { 1, "Wand Specialization", 2 }, { 1, "Twin Disciplines", 5 },
+                { 1, "Silent Resolve", 3 }, { 1, "Meditation", 3 },
             },
         },
         {
@@ -231,9 +400,24 @@ TA.BUILDS = {
             priority = "Bonus Healing > MP5 / Spirit > Intellect > Stamina",
             caps = { spellHit = 0, critTarget = 10 },
             order = {
-                { 1, "Unbreakable Will", 5 }, { 1, "Silent Resolve", 5 }, { 1, "Meditation", 3 },
-                { 1, "Inner Focus", 1 }, { 1, "Divine Spirit", 1 },
-                { 2, "Improved Renew", 3 }, { 2, "Holy Specialization", 5 }, { 2, "Spiritual Healing", 5 },
+                -- Tab 1 Discipline (21 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (5 pts)
+                { 1, "Twin Disciplines", 5 },
+                -- Row 2 (8 pts -> 13 total)
+                { 1, "Silent Resolve", 3 }, { 1, "Mental Strength", 5 },
+                -- Row 3 (7 pts -> 20 total) & Row 5 (1 pt -> 21 total)
+                { 1, "Inner Focus", 1 }, { 1, "Meditation", 3 }, { 1, "Mental Agility", 3 },
+                { 1, "Penance", 1 },
+                -- Tab 2 Holy (30 pts): Row 1 -> Row 6
+                -- Row 1 (8 pts)
+                { 2, "Improved Renew", 3 }, { 2, "Holy Specialization", 5 },
+                -- Row 2 (5 pts -> 13 total) & Row 3 (3 pts -> 16 total)
+                { 2, "Divine Fury", 5 }, { 2, "Inspiration", 3 },
+                -- Row 4 (5 pts -> 21 total)
+                { 2, "Improved Healing", 3 }, { 2, "Holy Reach", 2 },
+                -- Row 5 (6 pts -> 27 total) & Row 6 (3 pts -> 30 total)
+                { 2, "Spiritual Guidance", 5 }, { 2, "Spirit of Redemption", 1 },
+                { 2, "Spiritual Healing", 3 },
             },
         },
         {
@@ -242,8 +426,23 @@ TA.BUILDS = {
             priority = "Spell Hit (3% PvP) > Stamina > Shadow Power > Intellect",
             caps = { spellHit = 3, critTarget = 12 },
             order = {
-                { 3, "Blackout", 5 }, { 3, "Shadow Focus", 5 }, { 3, "Mind Flay", 1 },
-                { 3, "Silence", 1 }, { 3, "Shadowform", 1 },
+                -- Tab 3 Shadow (36 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Blackout", 5 }, { 3, "Shadow Focus", 5 },
+                -- Row 2 (9 pts -> 19 total)
+                { 3, "Improved Shadow Word: Pain", 2 }, { 3, "Improved Mind Blast", 5 }, { 3, "Shadow Reach", 2 },
+                -- Row 3 (3 pts -> 22 total)
+                { 3, "Mind Flay", 1 }, { 3, "Improved Psychic Scream", 2 },
+                -- Row 4 (4 pts -> 26 total)
+                { 3, "Vampiric Embrace", 1 }, { 3, "Shadow Weaving", 3 },
+                -- Row 5 (3 pts -> 29 total)
+                { 3, "Silence", 1 }, { 3, "Devouring Contagion", 2 },
+                -- Row 6 (6 pts -> 35 total) & Row 7 (1 pt -> 36 total)
+                { 3, "Darkness", 5 }, { 3, "Early Demise", 1 }, { 3, "Shadowform", 1 },
+                -- Tab 1 Discipline (15 pts): Row 1 -> Row 2 -> Row 3
+                { 1, "Twin Disciplines", 5 },
+                { 1, "Martyrdom", 2 }, { 1, "Mental Strength", 3 },
+                { 1, "Improved Power Word: Shield", 3 }, { 1, "Inner Focus", 1 }, { 1, "Meditation", 1 },
             },
         },
     },
@@ -291,21 +490,33 @@ TA.BUILDS = {
                 { 3, "Preparation", 1 }, { 3, "Hemorrhage", 1 },
                 -- Tab 1 Assassination (16 pts): Row 1 Malice (5/5) before Row 2-4
                 { 1, "Malice", 5 }, { 1, "Ruthlessness", 3 }, { 1, "Improved Slice and Dice", 3 },
-                { 1, "Murder", 2 }, { 1, "Lethality", 2 }, { 1, "Cold Blood", 1 },
+                { 1, "Vigor", 2 }, { 1, "Lethality", 2 }, { 1, "Cold Blood", 1 },
             },
         },
     },
     SHAMAN = {
         {
-            id = "enh_lvl", label = "Enhancement Leveling (7/33/11)", role = "Melee DPS",
-            weapon = "Slow 2H Axe/Mace (or 1H + Shield vs heavy melee)",
+            id = "enh_lvl", label = "Enhancement Leveling (0/39/12)", role = "Melee DPS",
+            weapon = "Slow 2H Axe/Mace (or Dual-Wield / 1H + Shield vs heavy melee)",
             priority = "Melee Hit Cap (8%) > Strength > Agility > Crit > Intellect",
             caps = { meleeHit = 8, spellHit = 0, critTarget = 20 },
             order = {
-                { 2, "Ancestral Knowledge", 5 }, { 2, "Thundering Strikes", 5 }, { 2, "Improved Ghost Wolf", 2 },
-                { 2, "Two-Handed Axes and Maces", 1 }, { 2, "Flurry", 5 }, { 2, "Parry", 1 },
-                { 2, "Weapon Mastery", 5 }, { 2, "Stormstrike", 1 },
-                { 3, "Nature's Guidance", 3 }, { 1, "Concussion", 5 },
+                -- Tab 2 Enhancement (39 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts -> unlocks Row 2 & Row 3)
+                { 2, "Thundering Strikes", 5 }, { 2, "Ancestral Knowledge", 5 },
+                -- Row 2 (6 pts -> 16 total)
+                { 2, "Mental Dexterity", 3 }, { 2, "Improved Lightning Shield", 3 },
+                -- Row 3 (4 pts -> 20 total)
+                { 2, "Elemental Weapons", 3 }, { 2, "Shamanistic Focus", 1 },
+                -- Row 4 (8 pts -> 28 total)
+                { 2, "Flurry", 5 }, { 2, "Stormstrike", 1 }, { 2, "Improved Ghost Wolf", 2 },
+                -- Row 5 (5 pts -> 33 total)
+                { 2, "Spirit Weapons", 1 }, { 2, "Mental Quickness", 2 }, { 2, "Improved Stormstrike", 2 },
+                -- Row 6 (5 pts -> 38 total) & Row 7 (1 pt -> 39 total)
+                { 2, "Maelstrom Weapon", 5 }, { 2, "Rage of the Farseer", 1 },
+                -- Tab 3 Restoration (12 pts): Row 1 -> Row 2 -> Row 3
+                { 3, "Tidal Focus", 5 }, { 3, "Mindfulness", 3 }, { 3, "Natural Grace", 3 },
+                { 3, "Water Shield", 1 },
             },
         },
         {
@@ -314,9 +525,23 @@ TA.BUILDS = {
             priority = "Spell Hit Cap (16% Raid / 3% PvP) > Spell Crit > Spell Power > Intellect",
             caps = { spellHit = 16, critTarget = 20 },
             order = {
-                { 1, "Concussion", 5 }, { 1, "Call of Flame", 3 }, { 1, "Elemental Focus", 1 },
-                { 1, "Call of Thunder", 5 }, { 1, "Elemental Fury", 1 }, { 1, "Lightning Mastery", 5 },
-                { 1, "Elemental Mastery", 1 }, { 3, "Nature's Guidance", 3 },
+                -- Tab 1 Elemental (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 1, "Concussion", 5 }, { 1, "Convection", 5 },
+                -- Row 2 (6 pts -> 16 total)
+                { 1, "Elemental Alacrity", 3 }, { 1, "Call of Flame", 3 },
+                -- Row 3 (1 pt -> 17 total)
+                { 1, "Elemental Focus", 1 },
+                -- Row 4 (4 pts -> 21 total)
+                { 1, "Trial by Fire", 2 }, { 1, "Eye of the Storm", 2 },
+                -- Row 5 (4 pts -> 25 total)
+                { 1, "Call of Thunder", 1 }, { 1, "Lightning Overload", 3 },
+                -- Row 6 (5 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 1, "Elemental Fury", 5 }, { 1, "Lightning Mastery", 1 },
+                -- Tab 3 Restoration (20 pts): Row 1 -> Row 2 -> Row 3 -> Row 4
+                { 3, "Tidal Focus", 5 }, { 3, "Improved Healing Wave", 5 },
+                { 3, "Totemic Focus", 5 }, { 3, "Water Shield", 1 }, { 3, "Healing Focus", 3 },
+                { 3, "Tidal Mastery", 1 },
             },
         },
         {
@@ -325,8 +550,21 @@ TA.BUILDS = {
             priority = "Bonus Healing > MP5 > Intellect > Spell Crit",
             caps = { spellHit = 0, critTarget = 12 },
             order = {
-                { 3, "Improved Healing Wave", 5 }, { 3, "Tidal Focus", 5 }, { 3, "Tidal Mastery", 5 },
-                { 3, "Nature's Swiftness", 1 }, { 3, "Purification", 5 }, { 3, "Mana Tide Totem", 1 },
+                -- Tab 3 Restoration (46 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Improved Healing Wave", 5 }, { 3, "Tidal Focus", 5 },
+                -- Row 2 (10 pts -> 20 total)
+                { 3, "Totemic Focus", 4 }, { 3, "Mindfulness", 3 }, { 3, "Natural Grace", 3 },
+                -- Row 3 (7 pts -> 27 total)
+                { 3, "Ancestral Healing", 3 }, { 3, "Healing Focus", 3 }, { 3, "Water Shield", 1 },
+                -- Row 4 (11 pts -> 38 total)
+                { 3, "Tidal Mastery", 5 }, { 3, "Restorative Totems", 5 }, { 3, "Mana Tide Totem", 1 },
+                -- Row 5 (2 pts -> 40 total)
+                { 3, "Healing Way", 1 }, { 3, "Nature's Swiftness", 1 },
+                -- Row 6 (5 pts -> 45 total) & Row 7 (1 pt -> 46 total)
+                { 3, "Purification", 5 }, { 3, "Riptide", 1 },
+                -- Tab 2 Enhancement (5 pts): Row 1
+                { 2, "Ancestral Knowledge", 5 },
             },
         },
     },
@@ -337,10 +575,23 @@ TA.BUILDS = {
             priority = "Melee Hit Cap (8% PvE / 5% PvP) > Strength > Crit > Stamina",
             caps = { meleeHit = 8, critTarget = 22 },
             order = {
-                { 1, "Improved Heroic Strike", 3 }, { 1, "Deflection", 2 }, { 1, "Tactical Mastery", 5 },
-                { 1, "Anger Management", 1 }, { 1, "Deep Wounds", 3 }, { 1, "Impale", 2 },
-                { 1, "Sweeping Strikes", 1 }, { 1, "Axe Specialization", 5 }, { 1, "Mortal Strike", 1 },
-                { 2, "Cruelty", 5 }, { 2, "Unbridled Wrath", 5 }, { 2, "Enrage", 5 },
+                -- Tab 1 Arms (31 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (8 pts)
+                { 1, "Deflection", 5 }, { 1, "Improved Rend", 3 },
+                -- Row 2 (5 pts -> 13 total)
+                { 1, "Improved Tactical Mastery", 3 }, { 1, "Improved Overpower", 2 },
+                -- Row 3 (4 pts -> 17 total)
+                { 1, "Anger Management", 1 }, { 1, "Deep Wounds", 3 },
+                -- Row 4 (5 pts -> 22 total)
+                { 1, "Impale", 2 }, { 1, "Two-Handed Weapon Specialization", 3 },
+                -- Row 5 (6 pts -> 28 total)
+                { 1, "Sweeping Strikes", 1 }, { 1, "Weaponmaster", 5 },
+                -- Row 6 (2 pts -> 30 total) & Row 7 (1 pt -> 31 total)
+                { 1, "Improved Hamstring", 2 }, { 1, "Mortal Strike", 1 },
+                -- Tab 2 Fury (20 pts): Row 1 -> Row 2 -> Row 3
+                { 2, "Cruelty", 5 }, { 2, "Booming Voice", 5 },
+                { 2, "Unbridled Wrath", 5 },
+                { 2, "Piercing Howl", 1 }, { 2, "Enrage", 4 },
             },
         },
         {
@@ -349,9 +600,24 @@ TA.BUILDS = {
             priority = "Melee Hit Cap (8% Special) > Weapon Skill > Crit > Strength / AP",
             caps = { meleeHit = 8, critTarget = 26 },
             order = {
-                { 2, "Cruelty", 5 }, { 2, "Unbridled Wrath", 5 }, { 2, "Improved Battle Shout", 5 },
-                { 2, "Enrage", 5 }, { 2, "Death Wish", 1 }, { 2, "Flurry", 5 }, { 2, "Bloodthirst", 1 },
-                { 1, "Tactical Mastery", 5 }, { 1, "Anger Management", 1 }, { 1, "Impale", 2 },
+                -- Tab 2 Fury (34 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 2, "Cruelty", 5 }, { 2, "Booming Voice", 5 },
+                -- Row 2 (5 pts -> 15 total)
+                { 2, "Unbridled Wrath", 5 },
+                -- Row 3 (5 pts -> 20 total)
+                { 2, "Furious Precision", 3 }, { 2, "Enrage", 2 },
+                -- Row 4 (7 pts -> 27 total)
+                { 2, "Dual Wield Specialization", 5 }, { 2, "Improved Execute", 2 },
+                -- Row 5 (1 pt -> 28 total)
+                { 2, "Death Wish", 1 },
+                -- Row 6 (5 pts -> 33 total) & Row 7 (1 pt -> 34 total)
+                { 2, "Flurry", 3 }, { 2, "Improved Whirlwind", 2 }, { 2, "Bloodthirst", 1 },
+                -- Tab 1 Arms (17 pts): Row 1 -> Row 2 -> Row 3 -> Row 4
+                { 1, "Improved Heroic Strike", 3 }, { 1, "Improved Rend", 3 },
+                { 1, "Improved Tactical Mastery", 3 }, { 1, "Improved Charge", 2 },
+                { 1, "Anger Management", 1 }, { 1, "Deep Wounds", 3 },
+                { 1, "Impale", 2 },
             },
         },
         {
@@ -360,10 +626,24 @@ TA.BUILDS = {
             priority = "Defense Cap (440) > Melee Hit Cap (8%) > Stamina > Dodge/Parry/Block",
             caps = { defense = 440, meleeHit = 8, critTarget = 12 },
             order = {
-                { 3, "Shield Specialization", 5 }, { 3, "Anticipation", 5 }, { 3, "Toughness", 5 },
-                { 3, "Last Stand", 1 }, { 3, "Defiance", 5 }, { 3, "Improved Sunder Armor", 3 },
-                { 3, "Concussion Blow", 1 }, { 3, "One-Handed Weapon Specialization", 5 },
-                { 3, "Shield Slam", 1 }, { 2, "Cruelty", 5 },
+                -- Tab 3 Protection (35 pts): WoW Forever 16001 legal tier progression (5 pts/row)
+                -- Row 1 (10 pts)
+                { 3, "Shield Specialization", 5 }, { 3, "Improved Bloodrage", 2 }, { 3, "Iron Will", 3 },
+                -- Row 2 (5 pts -> 15 total)
+                { 3, "Anticipation", 5 },
+                -- Row 3 (6 pts -> 21 total)
+                { 3, "Last Stand", 1 }, { 3, "Defiance", 3 }, { 3, "Master of Defense", 2 },
+                -- Row 4 (4 pts -> 25 total)
+                { 3, "Improved Sunder Armor", 3 }, { 3, "Vanguard", 1 },
+                -- Row 5 (4 pts -> 29 total)
+                { 3, "Concussion Blow", 1 }, { 3, "Focused Rage", 3 },
+                -- Row 6 (5 pts -> 34 total) & Row 7 (1 pt -> 35 total)
+                { 3, "Bastion", 5 }, { 3, "Shield Slam", 1 },
+                -- Tab 1 Arms (11 pts): Row 1 -> Row 2
+                { 1, "Deflection", 5 }, { 1, "Improved Heroic Strike", 3 },
+                { 1, "Improved Tactical Mastery", 3 },
+                -- Tab 2 Fury (5 pts): Row 1
+                { 2, "Cruelty", 5 },
             },
         },
     },
