@@ -14,6 +14,31 @@ WT.trainerPinSelected = 1
 WT.trainerPinPage = 1
 WT.lastTomTomUID = nil
 
+local function ApplyBlueGoldBackdrop(f, alpha)
+    if not f then return end
+    if f.SetBackdrop then
+        local ok = pcall(function()
+            f:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                tile = true, tileSize = 16, edgeSize = 12,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            })
+            f:SetBackdropColor(0.04, 0.09, 0.19, alpha or 0.94)
+            f:SetBackdropBorderColor(0.95, 0.78, 0.18, 0.95)
+        end)
+        if ok then return end
+    end
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(f)
+    if bg.SetColorTexture then
+        bg:SetColorTexture(0.04, 0.09, 0.19, alpha or 0.94)
+    else
+        bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+        bg:SetVertexColor(0.04, 0.09, 0.19, alpha or 0.94)
+    end
+end
+
 -- Cross-client Quest Completion Check
 function WT:IsQuestCompleted(questID)
     if not questID then return false end
@@ -474,22 +499,33 @@ function WT:PlaceTrainerMapPin(entry)
 
     -- 1. Native Blizzard Map Waypoint (C_Map.SetUserWaypoint + C_SuperTrack.SetSuperTrackedUserWaypoint)
     if mapID and C_Map and C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates then
-        local ok = pcall(function()
-            if C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
-            local pt = UiMapPoint.CreateFromCoordinates(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100)
-            C_Map.SetUserWaypoint(pt)
-            if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
-                C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+        local canPin = true
+        if C_Map.CanSetUserWaypointOnMap then
+            local okCan, allowed = pcall(C_Map.CanSetUserWaypointOnMap, mapID)
+            if okCan and allowed == false then
+                canPin = false
             end
-        end)
-        if ok then pinnedNative = true end
+        end
+        if canPin then
+            local ok, didSet = pcall(function()
+                if C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
+                local pt = UiMapPoint.CreateFromCoordinates(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100)
+                if not pt then return false end
+                C_Map.SetUserWaypoint(pt)
+                if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
+                    C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+                end
+                return true
+            end)
+            if ok and didSet then pinnedNative = true end
+        end
     end
 
     -- 2. TomTom fallback (when native waypoint isn't available or TomTom is installed)
-    if (not pinnedNative) or _G.TomTom then
+    if (not pinnedNative) or (_G.TomTom ~= nil) then
         local TT = _G.TomTom
         if TT and type(TT.AddWaypoint) == "function" and mapID then
-            pcall(function()
+            local ok = pcall(function()
                 if WT.lastTomTomUID and type(TT.RemoveWaypoint) == "function" then
                     TT:RemoveWaypoint(WT.lastTomTomUID)
                 end
@@ -499,13 +535,13 @@ function WT:PlaceTrainerMapPin(entry)
                     minimap = true,
                     world = true,
                 })
-                pinnedTomTom = true
             end)
+            if ok then pinnedTomTom = true end
         elseif not pinnedNative and SlashCmdList and type(SlashCmdList["TOMTOM_WAY"]) == "function" then
-            pcall(function()
+            local ok = pcall(function()
                 SlashCmdList["TOMTOM_WAY"](string.format("%s %.1f %.1f %s", entry.zone or "", entry.x or 50, entry.y or 50, label))
-                pinnedTomTom = true
             end)
+            if ok then pinnedTomTom = true end
         end
     end
 
@@ -839,25 +875,6 @@ function WT:PrintTrainerLookup(query, suppressPopup)
     end
 end
 
-local function ApplyBlueGoldBackdrop(f, alpha)
-    if f.SetBackdrop then
-        local ok = pcall(function()
-            f:SetBackdrop({
-                bgFile = "Interface\\Buttons\\WHITE8x8",
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                tile = true, tileSize = 16, edgeSize = 12,
-                insets = { left = 2, right = 2, top = 2, bottom = 2 },
-            })
-            f:SetBackdropColor(0.04, 0.09, 0.19, alpha or 0.94)
-            f:SetBackdropBorderColor(0.95, 0.78, 0.18, 0.95)
-        end)
-        if ok then return end
-    end
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(f)
-    bg:SetColorTexture(0.04, 0.09, 0.19, alpha or 0.94)
-end
-
 -- ==========================================
 -- DOCKED QUESTIE TRACKER HEADING (Replaces/Extends Questie Quest List Header)
 -- ==========================================
@@ -1023,7 +1040,13 @@ function WT:InitQuestieDock()
         bTrain:SetSize(68, 18)
         bTrain:SetPoint("LEFT", bFull, "RIGHT", 4, 0)
         bTrain:SetText("Trainers")
-        bTrain:SetScript("OnClick", function() WT:PrintTrainerLookup("") end)
+        bTrain:SetScript("OnClick", function()
+            local ok, err = pcall(function() WT:PrintTrainerLookup("") end)
+            if not ok then
+                if NS.RecordError then NS:RecordError("WaveTracker:DockTrainers", err) end
+                NS:Print("|cffff4444Trainer lookup error:|r " .. tostring(err))
+            end
+        end)
 
         local bSetup = CreateFrame("Button", nil, body, "UIPanelButtonTemplate")
         bSetup:SetSize(56, 18)
@@ -1287,7 +1310,13 @@ function WT:ShowUI()
         bTrainers:SetSize(130, 24)
         bTrainers:SetPoint("LEFT", bTestGate, "RIGHT", 6, 0)
         bTrainers:SetText("My Prof Trainers")
-        bTrainers:SetScript("OnClick", function() WT:PrintTrainerLookup("") end)
+        bTrainers:SetScript("OnClick", function()
+            local ok, err = pcall(function() WT:PrintTrainerLookup("") end)
+            if not ok then
+                if NS.RecordError then NS:RecordError("WaveTracker:Trainers", err) end
+                NS:Print("|cffff4444Trainer lookup error:|r " .. tostring(err))
+            end
+        end)
 
         local bSnooze = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         bSnooze:SetSize(74, 24)

@@ -8,6 +8,7 @@ OB.totalSteps = 5
 OB.frame = nil
 OB.customFrame = nil
 OB.customAltIndex = 1
+OB.step2CharIndex = 1
 OB.step3CharIndex = 1
 OB.sharedFrame = nil
 OB.sharedProfName = nil
@@ -60,7 +61,8 @@ local function CreateActionButton(parent, width, height, text, onClick)
     b:SetScript("OnClick", function()
         local ok, err = pcall(onClick)
         if not ok then
-            NS:Print("|cffff4444Onboarding UI error:|r " .. tostring(err))
+            if NS.RecordError then NS:RecordError("OnboardingButton:" .. tostring(text or "?"), err) end
+            NS:Print("|cffff4444Onboarding UI error:|r " .. tostring(err) .. " (Type |cffffd100/he bug|r to copy report)")
         end
     end)
     return b
@@ -88,7 +90,8 @@ local function CreateCheckbox(parent, label, getVal, setVal)
             OB:RefreshCurrentStep()
         end)
         if not ok then
-            NS:Print("|cffff4444Checkbox error:|r " .. tostring(err))
+            if NS.RecordError then NS:RecordError("OnboardingCheckbox", err) end
+            NS:Print("|cffff4444Checkbox error:|r " .. tostring(err) .. " (Type |cffffd100/he bug|r to copy report)")
         end
     end)
     cb.Refresh = function(self)
@@ -439,11 +442,6 @@ function OB:RefreshCustomPopup()
     if #list > 0 then
         if OB.customAltIndex < 1 or OB.customAltIndex > #list then
             OB.customAltIndex = 1
-OB.step3CharIndex = 1
-OB.sharedFrame = nil
-OB.sharedProfName = nil
-OB.sharedCatKey = nil
-OB.sharedPoolIndex = 1
         end
         local name = list[OB.customAltIndex].name
         local tag = C.IsCurrentPlayer(name) and " (You)" or ""
@@ -852,27 +850,55 @@ function OB:BuildFrame()
     p2Desc:SetJustifyH("LEFT")
     p2Desc:SetText("WOWEngine v1.6.0 is now a single unified addon for both Horde & Alliance with integrated IllusoryBias tools. Register your bank alt and preview your derivative naming below.")
 
-    local p2BankBtn = CreateActionButton(p2, 235, 26, "Set Current Character as BankAlt", function()
+    local function StepStep2Char(delta)
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list == 0 then return end
+        OB.step2CharIndex = ((OB.step2CharIndex - 1 + (delta or 1)) % #list) + 1
+        OB:RefreshCurrentStep()
+    end
+
+    local p2CharPrev = CreateActionButton(p2, 24, 24, "<", function() StepStep2Char(-1) end)
+    p2CharPrev:SetPoint("TOPLEFT", p2Desc, "BOTTOMLEFT", 0, -12)
+    p2.charPrevBtn = p2CharPrev
+
+    local p2CharBtn = CreateActionButton(p2, 226, 24, "Select Character", function() StepStep2Char(1) end)
+    p2CharBtn:SetPoint("LEFT", p2CharPrev, "RIGHT", 3, 0)
+    p2.charBtn = p2CharBtn
+
+    local p2CharNext = CreateActionButton(p2, 24, 24, ">", function() StepStep2Char(1) end)
+    p2CharNext:SetPoint("LEFT", p2CharBtn, "RIGHT", 3, 0)
+    p2.charNextBtn = p2CharNext
+
+    local p2BankBtn = CreateActionButton(p2, 188, 24, "Set Selected as BankAlt", function()
         NS.Roster:ScanCurrentPlayer()
-        local exact = C.GetPlayerName()
-        if exact then
-            NS.Roster:AddTargetToCategory("BankAlt", exact, true)
-            NS:Print("Verified BankAlt added: |cff00ff00" .. exact .. "|r (never self-mails).")
+        local list = NS.Roster:GetSortedVerifiedList()
+        local picked = (list and list[OB.step2CharIndex] and list[OB.step2CharIndex].name) or C.GetPlayerName()
+        if picked then
+            if NS.Roster:HasTargetInCategory("BankAlt", picked) then
+                NS.Roster:RemoveTargetFromCategory("BankAlt", picked, true)
+                NS:Print("Removed BankAlt: |cffff9900" .. picked .. "|r.")
+            else
+                NS.Roster:AddTargetToCategory("BankAlt", picked, true)
+                NS:Print("Verified BankAlt added: |cff00ff00" .. picked .. "|r (never self-mails).")
+            end
             OB:RefreshCurrentStep()
         end
     end)
-    p2BankBtn:SetPoint("TOPLEFT", p2Desc, "BOTTOMLEFT", 0, -14)
+    p2BankBtn:SetPoint("LEFT", p2CharNext, "RIGHT", 8, 0)
+    p2.bankBtn = p2BankBtn
 
     local p2Info = p2:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    p2Info:SetPoint("TOPLEFT", p2BankBtn, "BOTTOMLEFT", 0, -14)
+    p2Info:SetPoint("TOPLEFT", p2CharPrev, "BOTTOMLEFT", 0, -14)
     p2Info:SetWidth(475)
     p2Info:SetJustifyH("LEFT")
     p2Info:SetText("Loading profile...")
     p2.info = p2Info
 
-    local p2NameBtn = CreateActionButton(p2, 235, 24, "Preview Derivative Alt Name", function()
-        local _, classToken = UnitClass("player")
-        local profs = C.GetPlayerProfessions()
+    local p2NameBtn = CreateActionButton(p2, 245, 24, "Preview Derivative Alt Name", function()
+        local list = NS.Roster:GetSortedVerifiedList()
+        local picked = list and list[OB.step2CharIndex]
+        local classToken = (picked and picked.class) or select(2, UnitClass("player"))
+        local profs = (picked and picked.professions) or C.GetPlayerProfessions()
         local plist = {}
         for p in pairs(profs) do table.insert(plist, p) end
         local suggestion = NS:SuggestDerivativeName(classToken, plist[1], plist[2])
@@ -898,32 +924,37 @@ function OB:BuildFrame()
     p3Title:SetPoint("TOPLEFT", 14, -10)
     p3Title:SetText("|cffffd100Step 3: Character Profession Profile & Dynamic Mail Routing|r")
 
-    -- Character Selector Bar
-    local cPrevBtn = CreateActionButton(p3, 58, 22, "< Prev", function()
+    -- Character Selector Bar with "<" [Character Name] ">" buttons
+    local function StepStep3Char(delta)
         local list = NS.Roster:GetSortedVerifiedList()
         if #list > 0 then
-            OB.step3CharIndex = OB.step3CharIndex - 1
-            if OB.step3CharIndex < 1 then OB.step3CharIndex = #list end
+            OB.step3CharIndex = ((OB.step3CharIndex - 1 + (delta or 1)) % #list) + 1
             OB:RefreshCurrentStep()
         end
-    end)
+    end
+
+    local cPrevBtn = CreateActionButton(p3, 26, 24, "<", function() StepStep3Char(-1) end)
     cPrevBtn:SetPoint("TOPLEFT", 14, -34)
+    p3.cPrevBtn = cPrevBtn
 
-    local cNextBtn = CreateActionButton(p3, 58, 22, "Next >", function()
-        local list = NS.Roster:GetSortedVerifiedList()
-        if #list > 0 then
-            OB.step3CharIndex = OB.step3CharIndex + 1
-            if OB.step3CharIndex > #list then OB.step3CharIndex = 1 end
-            OB:RefreshCurrentStep()
-        end
-    end)
+    local cNextBtn = CreateActionButton(p3, 26, 24, ">", function() StepStep3Char(1) end)
     cNextBtn:SetPoint("TOPRIGHT", -14, -34)
+    p3.cNextBtn = cNextBtn
 
-    local charBanner = p3:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    charBanner:SetPoint("LEFT", cPrevBtn, "RIGHT", 6, 0)
-    charBanner:SetPoint("RIGHT", cNextBtn, "LEFT", -6, 0)
-    charBanner:SetJustifyH("CENTER")
-    p3.charBanner = charBanner
+    local charBtn = CreateActionButton(p3, 412, 24, "Select Character", function() StepStep3Char(1) end)
+    charBtn:ClearAllPoints()
+    charBtn:SetPoint("LEFT", cPrevBtn, "RIGHT", 4, 0)
+    charBtn:SetPoint("RIGHT", cNextBtn, "LEFT", -4, 0)
+    local charFS = charBtn:GetFontString()
+    if charFS then
+        charFS:ClearAllPoints()
+        charFS:SetPoint("LEFT", charBtn, "LEFT", 8, 0)
+        charFS:SetPoint("RIGHT", charBtn, "RIGHT", -8, 0)
+        charFS:SetJustifyH("CENTER")
+        if charFS.SetWordWrap then charFS:SetWordWrap(false) end
+    end
+    p3.charBtn = charBtn
+    p3.charBanner = charBtn
 
     -- Dynamic Phase Status Line
     local phaseTxt = p3:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1252,9 +1283,13 @@ function OB:BuildFrame()
 
     local bDiag = CreateActionButton(p5, 222, 26, "6. Copy Bug Report (/he bug)", function()
         if NS.BugReporter and NS.BugReporter.Show then
-            NS.BugReporter:Show()
+            local ok, err = pcall(function() NS.BugReporter:Show() end)
+            if not ok then
+                if NS.RecordError then NS:RecordError("CopyBugReport", err) end
+                NS:Print("|cffff4444Bug Reporter error:|r " .. tostring(err))
+            end
         else
-            SlashCmdList["WOWENGINEHELP"]("diag")
+            NS:Print("|cffff9900BugReporter module not loaded.|r Type |cffffd100/he diag|r to print diagnostics.")
         end
     end)
     bDiag:SetPoint("LEFT", bLedger, "RIGHT", 14, 0)
@@ -1355,6 +1390,27 @@ function OB:RefreshCurrentStep()
 
     elseif OB.currentStep == 2 then
         local p2 = OB.stepPanels[2]
+        local list = NS.Roster:GetSortedVerifiedList()
+        if #list == 0 then
+            if p2.charBtn then p2.charBtn:SetText("|cffff9900No characters — run Step 1 Scan|r") end
+            if p2.bankBtn then p2.bankBtn:SetText("Set Current as BankAlt") end
+        else
+            if OB.step2CharIndex < 1 or OB.step2CharIndex > #list then
+                OB.step2CharIndex = 1
+            end
+            local picked = list[OB.step2CharIndex]
+            local selfTag = C.IsCurrentPlayer(picked.name) and " (You)" or ""
+            if p2.charBtn then
+                p2.charBtn:SetText(string.format("[%d/%d] %s%s", OB.step2CharIndex, #list, picked.name, selfTag))
+            end
+            if p2.bankBtn then
+                if NS.Roster:HasTargetInCategory("BankAlt", picked.name) then
+                    p2.bankBtn:SetText("Remove BankAlt Role")
+                else
+                    p2.bankBtn:SetText("Set Selected as BankAlt")
+                end
+            end
+        end
         local bankList = NS.Roster:GetCategoryTargets("BankAlt")
         local bankStr = (#bankList > 0) and table.concat(bankList, ", ") or "|cffff9900Not set yet|r"
         local fp = NS:GetFactionProfile()
@@ -1381,10 +1437,6 @@ function OB:RefreshCurrentStep()
         else
             if OB.step3CharIndex < 1 or OB.step3CharIndex > #list then
                 OB.step3CharIndex = 1
-OB.sharedFrame = nil
-OB.sharedProfName = nil
-OB.sharedCatKey = nil
-OB.sharedPoolIndex = 1
             end
             local info = list[OB.step3CharIndex]
             local prof = NS.Roster:GetCharacterProfessionProfile(info.name)
@@ -1529,10 +1581,11 @@ function OB:Show(stepNum)
         OB.currentStep = stepNum
     end
     NS.Roster:ScanAll(true)
-    -- Default Step 3 character selector to the currently logged-in character
+    -- Default Step 2 & Step 3 character selectors to the currently logged-in character
     local list = NS.Roster:GetSortedVerifiedList()
     for i, info in ipairs(list) do
         if C.IsCurrentPlayer(info.name) then
+            OB.step2CharIndex = i
             OB.step3CharIndex = i
             break
         end

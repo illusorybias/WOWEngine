@@ -1,0 +1,81 @@
+name: WoW Version Monitor
+
+on:
+  schedule:
+    # 8:00 AM, 2:00 PM, and 8:00 PM CST (14:00, 20:00, 02:00 UTC)
+    - cron: '0 2,14,20 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check live WoW versions against WOWEngine.toc
+        id: version_check
+        shell: bash
+        run: |
+          TOC_LINE=$(grep -i "^## Interface:" WOWEngine.toc || true)
+          echo "Current TOC: $TOC_LINE"
+
+          RETAIL_VER=$(curl -s "https://us.version.battle.net/v2/products/wow/versions" | awk -F'|' '$1=="us"{print $6}')
+          CLASSIC_VER=$(curl -s "https://us.version.battle.net/v2/products/wow_classic_era/versions" | awk -F'|' '$1=="us"{print $6}')
+
+          to_interface() {
+            echo "$1" | awk -F'.' '{printf "%d%02d%02d", $1, $2, $3}'
+          }
+
+          RETAIL_IFACE=$(to_interface "$RETAIL_VER")
+          CLASSIC_IFACE=$(to_interface "$CLASSIC_VER")
+
+          echo "Live Retail: $RETAIL_VER ($RETAIL_IFACE)"
+          echo "Live Classic Era: $CLASSIC_VER ($CLASSIC_IFACE)"
+
+          CHANGED="false"
+          MISSING=""
+
+          if [ -n "$RETAIL_IFACE" ] && ! echo "$TOC_LINE" | grep -q "$RETAIL_IFACE"; then
+            CHANGED="true"
+            MISSING="${MISSING}Retail: ${RETAIL_VER} (Interface ${RETAIL_IFACE})\n"
+          fi
+
+          if [ -n "$CLASSIC_IFACE" ] && ! echo "$TOC_LINE" | grep -q "$CLASSIC_IFACE"; then
+            CHANGED="true"
+            MISSING="${MISSING}Classic Era: ${CLASSIC_VER} (Interface ${CLASSIC_IFACE})\n"
+          fi
+
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          {
+            echo "missing<<EOF"
+            echo -e "$MISSING"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open GitHub Issue if version changed
+        if: steps.version_check.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = `${{ steps.version_check.outputs.missing }}`.trim();
+            const title = `WoW Interface Update Detected`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              creator: 'github-actions[bot]'
+            });
+            const exists = issues.some(i => i.body && i.body.includes(missing));
+            if (!exists) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `A new World of Warcraft version was detected that is not in \`WOWEngine.toc\`:\n\n${missing}\nUpdate \`## Interface:\` in \`WOWEngine.toc\`, test in-game, and push a new \`v*\` tag to redeploy.`
+              });
+            }
