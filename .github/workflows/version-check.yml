@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check live WoW versions against WOWEngine.toc
         id: version_check
@@ -67,7 +67,7 @@ jobs:
 
       - name: Open GitHub Issue if version changed
         if: steps.version_check.outputs.changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const missing = `${{ steps.version_check.outputs.missing }}`.trim();
