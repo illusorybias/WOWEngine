@@ -151,6 +151,22 @@ function NS:EnsureDB()
     WOWEngineDB.selectedSpecs = WOWEngineDB.selectedSpecs or {}
     WOWEngineDB.learnedRecipesByChar = WOWEngineDB.learnedRecipesByChar or {}
     if WOWEngineDB.vendorRecipeAlertEnabled == nil then WOWEngineDB.vendorRecipeAlertEnabled = true end
+    if type(WOWEngineDB.userPlan) ~= "table" then
+        WOWEngineDB.userPlan = {
+            completed = false,
+            specFocus = "PvE",
+            metaSource = "Wowhead",
+            useBankAlt = true,
+        }
+    end
+    if type(WOWEngineDB.pointNag) ~= "table" then
+        WOWEngineDB.pointNag = {
+            bannerMutedUntil = 0,
+            bannerPermOff = false,
+            chatMuted = false,
+            byChar = {},
+        }
+    end
     WOWEngineDB.brandHandle = WOWEngineDB.brandHandle or "Illusorybias"
     WOWEngineDB.bugReportUrl = WOWEngineDB.bugReportUrl or "https://github.com/IllusoryBias/WOWEngine/issues/new?template=bug_report.yml"
 
@@ -343,7 +359,17 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         if #missingAddons > 0 then
             NS:Print("|cffff9900Optimal Setup Notice:|r Missing " .. table.concat(missingAddons, ", ") .. ". Some features are limited — open |cffffd100/he setup|r (Step 4) or |cffffd100Options -> AddOns -> WOWEngine|r for details.")
         end
-        if not WOWEngineDB.onboardingCompleted then
+        if not (WOWEngineDB.userPlan and WOWEngineDB.userPlan.completed) and NS.PlanBuilder and NS.PlanBuilder.Show then
+            if C_Timer and C_Timer.After then
+                C_Timer.After(1.0, function()
+                    if not (WOWEngineDB.userPlan and WOWEngineDB.userPlan.completed) and NS.PlanBuilder and NS.PlanBuilder.Show then
+                        pcall(function() NS.PlanBuilder:Show() end)
+                    end
+                end)
+            else
+                pcall(function() NS.PlanBuilder:Show() end)
+            end
+        elseif not WOWEngineDB.onboardingCompleted then
             if C_Timer and C_Timer.After then
                 C_Timer.After(1.0, function()
                     if not WOWEngineDB.onboardingCompleted then

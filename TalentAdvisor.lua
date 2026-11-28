@@ -134,11 +134,16 @@ TA.BUILDS = {
             priority = "Ranged Hit Cap (8%) > Agility > Attack Power > Crit > Intellect",
             caps = { meleeHit = 8, critTarget = 22 },
             order = {
-                { 1, "Improved Aspect of the Hawk", 5 }, { 1, "Endurance Training", 5 },
-                { 1, "Unleashed Fury", 5 }, { 1, "Ferocity", 5 }, { 1, "Intimidation", 1 },
-                { 1, "Bestial Discipline", 2 }, { 1, "Frenzy", 5 }, { 1, "Bestial Wrath", 1 },
+                -- Row 1 & Row 2: 10 legal points before Row 3 (WoW Forever 16001 BM — no deprecated Thick Hide / Imp. Eyes)
+                { 1, "Deadly Aspects", 5 }, { 1, "Endurance Training", 2 },
+                { 1, "Focused Fire", 2 }, { 1, "Improved Revive Pet", 1 },
+                -- Row 3+ (unlocked at 10+ pts in Tab 1)
+                { 1, "Bestial Swiftness", 1 }, { 1, "Pathfinding", 2 }, { 1, "Unleashed Fury", 5 },
+                { 1, "Ferocity", 5 }, { 1, "Intimidation", 1 },
+                { 1, "Bestial Discipline", 2 }, { 1, "Frenzy", 4 }, { 1, "Bestial Wrath", 1 },
+                -- Tab 2 Marksmanship (20 pts: 15 pts in Rows 1-3 before Row 4 Mortal Shots)
                 { 2, "Efficiency", 5 }, { 2, "Lethal Shots", 5 }, { 2, "Aimed Shot", 1 },
-                { 2, "Hawk Eye", 3 }, { 2, "Mortal Shots", 5 },
+                { 2, "Hawk Eye", 3 }, { 2, "Improved Concussive Shot", 1 }, { 2, "Mortal Shots", 5 },
             },
         },
         {
@@ -336,6 +341,43 @@ function TA:GetPlayerClassBuilds()
     return TA.BUILDS[classToken or "WARRIOR"] or TA.BUILDS.WARRIOR, classToken or "WARRIOR"
 end
 
+function TA:PickBuildForPlanFocus(builds, specFocus)
+    if not builds or #builds == 0 then return nil end
+    local focus = string.lower(tostring(specFocus or "pve"))
+    if focus == "pvp" then
+        for _, b in ipairs(builds) do
+            if string.lower(b.role or "") == "pvp" or string.find(string.lower(b.id or ""), "pvp", 1, true) then
+                return b
+            end
+        end
+    elseif focus == "raid" then
+        for _, b in ipairs(builds) do
+            local lbl = string.lower(b.label or "")
+            if string.find(lbl, "raid", 1, true) or string.find(lbl, "pve", 1, true) then
+                return b
+            end
+        end
+    elseif focus == "pve" or focus == "meta" then
+        for _, b in ipairs(builds) do
+            if string.lower(b.role or "") ~= "pvp" then
+                return b
+            end
+        end
+    end
+    return builds[1]
+end
+
+function TA:ApplyPlanFocus(specFocus, metaSource)
+    NS:EnsureDB()
+    local builds = TA:GetPlayerClassBuilds()
+    local picked = TA:PickBuildForPlanFocus(builds, specFocus)
+    if not picked then return end
+    local cKey = C.CanonicalCharKey(C.GetPlayerName() or "Player") or "player"
+    WOWEngineDB.selectedSpecs[cKey] = picked.id
+    TA:UpdateTalentHighlight()
+    if NS.StatCapsUI and NS.StatCapsUI.Refresh then NS.StatCapsUI:Refresh() end
+end
+
 function TA:GetSelectedBuild()
     NS:EnsureDB()
     local builds = TA:GetPlayerClassBuilds()
@@ -345,6 +387,10 @@ function TA:GetSelectedBuild()
         for _, b in ipairs(builds) do
             if b.id == savedId then return b end
         end
+    end
+    local planFocus = WOWEngineDB.userPlan and WOWEngineDB.userPlan.specFocus
+    if planFocus then
+        return TA:PickBuildForPlanFocus(builds, planFocus) or builds[1]
     end
     return builds[1]
 end
@@ -560,7 +606,125 @@ local function GetButtonTalentMeta(btn, talentsFrame)
     return names, nodeID, nodeInfo
 end
 
-local function FindModernRecommendedTalent(build)
+-- Snapshot a Classic talent tab with exact tier, column, rank, maxRank, pointsSpent, and prerequisite arrows
+local function SnapshotClassicTab(tabIdx)
+    if not GetNumTalents or not GetTalentInfo then return nil end
+    local okN, numTalents = pcall(GetNumTalents, tabIdx)
+    if not okN or type(numTalents) ~= "number" or numTalents <= 0 then
+        return nil
+    end
+
+    local talents = {}
+    local byGrid = {}
+    local pointsSpent = 0
+
+    for tIdx = 1, numTalents do
+        local okT, tName, _, tier, col, curRank, maxRank, _, available = pcall(GetTalentInfo, tabIdx, tIdx)
+        if okT and tName and not (C and C.IsSecret and C.IsSecret(tName)) then
+            local r = tonumber(curRank) or 0
+            local m = tonumber(maxRank) or 1
+            local tr = tonumber(tier) or 1
+            local cl = tonumber(col) or 1
+            pointsSpent = pointsSpent + r
+
+            local prereqs = {}
+            if GetTalentPrereqs then
+                local okP, p1, p2, p3, p4, p5, p6, p7, p8, p9 = pcall(GetTalentPrereqs, tabIdx, tIdx)
+                if okP then
+                    local raw = { p1, p2, p3, p4, p5, p6, p7, p8, p9 }
+                    for i = 1, #raw, 3 do
+                        local reqTier, reqCol = tonumber(raw[i]), tonumber(raw[i + 1])
+                        if reqTier and reqCol then
+                            table.insert(prereqs, { tier = reqTier, col = reqCol })
+                        end
+                    end
+                end
+            end
+
+            local entry = {
+                tab = tabIdx,
+                index = tIdx,
+                name = tName,
+                lower = string.lower(tName),
+                tier = tr,
+                col = cl,
+                curRank = r,
+                maxRank = m,
+                available = available,
+                prereqs = prereqs,
+            }
+            table.insert(talents, entry)
+            byGrid[tr .. ":" .. cl] = entry
+        end
+    end
+
+    return {
+        tab = tabIdx,
+        talents = talents,
+        byGrid = byGrid,
+        pointsSpent = pointsSpent,
+    }
+end
+
+local function MatchClassicTalentByName(tabSnap, wantName)
+    if not tabSnap or not wantName then return nil end
+    local wantLow = string.lower(wantName)
+    local partial = nil
+    for _, t in ipairs(tabSnap.talents) do
+        if t.lower == wantLow then
+            return t
+        elseif not partial and string.find(t.lower, wantLow, 1, true) then
+            partial = t
+        end
+    end
+    return partial
+end
+
+local function AreClassicPrereqsMet(tabSnap, talent)
+    if not tabSnap or not talent then return false, nil end
+    for _, pr in ipairs(talent.prereqs or {}) do
+        local req = tabSnap.byGrid[pr.tier .. ":" .. pr.col]
+        if req and req.curRank < req.maxRank then
+            return false, req
+        end
+    end
+    return true, nil
+end
+
+local function IsClassicTalentUnlocked(tabSnap, talent)
+    if not tabSnap or not talent then return false, "missing", nil end
+    if talent.curRank >= talent.maxRank then return false, "maxed", nil end
+    local reqPoints = (math.max(1, talent.tier) - 1) * 5
+    if tabSnap.pointsSpent < reqPoints then
+        return false, "tier", reqPoints
+    end
+    local prereqOk, missingPrereq = AreClassicPrereqsMet(tabSnap, talent)
+    if not prereqOk then
+        return false, "prereq", missingPrereq
+    end
+    return true, nil, nil
+end
+
+local function IsModernNodeUnlocked(configID, nodeInfo)
+    if type(nodeInfo) ~= "table" then return false end
+    if nodeInfo.isVisible == false then return false end
+    local cur = nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased or 0
+    local maxR = nodeInfo.maxRanks or 1
+    if cur >= maxR then return false end
+    if nodeInfo.canPurchaseRank == true then return true end
+    if nodeInfo.meetsEdgeRequirements == false then return false end
+    if configID and type(nodeInfo.conditionIDs) == "table" and C_Traits and C_Traits.GetConditionInfo then
+        for _, cid in ipairs(nodeInfo.conditionIDs) do
+            local okC, cInfo = pcall(C_Traits.GetConditionInfo, configID, cid)
+            if okC and type(cInfo) == "table" and cInfo.isMet == false then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local function CollectModernTreeSnapshot()
     local parent = TA:GetTalentParentFrame()
     local talentsFrame = parent and parent.TalentsFrame
     local configID = GetActiveTraitConfigID(talentsFrame)
@@ -596,7 +760,7 @@ local function FindModernRecommendedTalent(build)
                 for _, nodeID in ipairs(nodeIDs) do
                     if nodeID and not seenNodes[nodeID] then
                         local okNI, nodeInfo = pcall(C_Traits.GetNodeInfo, configID, nodeID)
-                        if okNI and type(nodeInfo) == "table" then
+                        if okNI and type(nodeInfo) == "table" and nodeInfo.isVisible ~= false then
                             local names = GetNodeNames(configID, nodeInfo)
                             if #names > 0 then
                                 seenNodes[nodeID] = true
@@ -605,6 +769,10 @@ local function FindModernRecommendedTalent(build)
                                     names = names,
                                     curRank = nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased or 0,
                                     maxRank = nodeInfo.maxRanks or 1,
+                                    posY = tonumber(nodeInfo.posY) or 99999,
+                                    posX = tonumber(nodeInfo.posX) or 99999,
+                                    unlocked = IsModernNodeUnlocked(configID, nodeInfo),
+                                    nodeInfo = nodeInfo,
                                 })
                             end
                         end
@@ -620,88 +788,200 @@ local function FindModernRecommendedTalent(build)
             local key = nodeID or btn
             if #names > 0 and not seenNodes[key] then
                 seenNodes[key] = true
+                local unlocked = nodeInfo and IsModernNodeUnlocked(configID, nodeInfo) or true
                 table.insert(nodes, {
                     nodeID = nodeID,
                     names = names,
                     curRank = (nodeInfo and (nodeInfo.activeRank or nodeInfo.currentRank or nodeInfo.ranksPurchased)) or 0,
                     maxRank = (nodeInfo and nodeInfo.maxRanks) or 1,
+                    posY = (nodeInfo and tonumber(nodeInfo.posY)) or 99999,
+                    posX = (nodeInfo and tonumber(nodeInfo.posX)) or 99999,
+                    unlocked = unlocked,
+                    nodeInfo = nodeInfo,
                 })
             end
         end
     end
 
-    if #nodes == 0 then return nil end
+    return nodes
+end
 
-    for stepIdx, step in ipairs(build.order) do
-        local tabIdx, wantName, wantRank = step[1], string.lower(step[2]), step[3]
-        local bestNode, bestName = nil, nil
-        for _, node in ipairs(nodes) do
-            for _, n in ipairs(node.names) do
-                local low = string.lower(n)
-                if low == wantName then
-                    bestNode, bestName = node, n
-                    break
-                elseif not bestNode and string.find(low, wantName, 1, true) then
-                    bestNode, bestName = node, n
-                end
-            end
-            if bestNode and bestName and string.lower(bestName) == wantName then
-                break
+local function MatchModernNodeByName(nodes, wantName)
+    if not nodes or not wantName then return nil, nil end
+    local wantLow = string.lower(wantName)
+    local bestNode, bestName = nil, nil
+    for _, node in ipairs(nodes) do
+        for _, n in ipairs(node.names) do
+            local low = string.lower(n)
+            if low == wantLow then
+                return node, n
+            elseif not bestNode and string.find(low, wantLow, 1, true) then
+                bestNode, bestName = node, n
             end
         end
-        if bestNode then
-            local target = math.min(wantRank or bestNode.maxRank or 1, bestNode.maxRank or 1)
-            if (bestNode.curRank or 0) < target then
-                return {
-                    tab = tabIdx,
-                    nodeID = bestNode.nodeID,
-                    name = bestName or bestNode.names[1],
-                    curRank = bestNode.curRank or 0,
-                    targetRank = target,
-                    stepNum = stepIdx,
-                    source = "modern",
-                }
+    end
+    return bestNode, bestName
+end
+
+local function FindModernRecommendedTalent(build)
+    local nodes = CollectModernTreeSnapshot()
+    if #nodes == 0 then return nil end
+
+    local sawLockedNeed = false
+    for stepIdx, step in ipairs(build.order) do
+        local tabIdx, wantName, wantRank = step[1], step[2], step[3]
+        local node, matchedName = MatchModernNodeByName(nodes, wantName)
+        if node then
+            local target = math.min(wantRank or node.maxRank or 1, node.maxRank or 1)
+            if (node.curRank or 0) < target then
+                if node.unlocked then
+                    return {
+                        tab = tabIdx,
+                        nodeID = node.nodeID,
+                        name = matchedName or node.names[1],
+                        curRank = node.curRank or 0,
+                        targetRank = target,
+                        stepNum = stepIdx,
+                        source = "modern",
+                    }
+                else
+                    sawLockedNeed = true
+                end
             end
+        end
+    end
+
+    -- Fallback: if desired build node is locked by row/gate requirements, pick highest-priority unlocked lower-row node
+    if sawLockedNeed then
+        local bestFallback = nil
+        for _, node in ipairs(nodes) do
+            if node.unlocked and (node.curRank or 0) < (node.maxRank or 1) then
+                if not bestFallback
+                    or node.posY < bestFallback.posY
+                    or (node.posY == bestFallback.posY and node.posX < bestFallback.posX) then
+                    bestFallback = node
+                end
+            end
+        end
+        if bestFallback then
+            return {
+                tab = 1,
+                nodeID = bestFallback.nodeID,
+                name = bestFallback.names[1],
+                curRank = bestFallback.curRank or 0,
+                targetRank = bestFallback.maxRank or 1,
+                stepNum = 0,
+                source = "modern",
+                isFallback = true,
+            }
         end
     end
     return nil
 end
 
--- Determine next recommended talent button based on current learned ranks
+-- Determine next recommended talent button based on LIVE tree existence, tier unlock, and prerequisites
 function TA:FindNextRecommendedTalent()
     local build = TA:GetSelectedBuild()
     if not build or not build.order then
         return nil, build
     end
 
-    -- Classic 3-tab talent API path
+    -- Classic / WoW Forever 3-tab talent API path
     if GetNumTalents and GetTalentInfo then
+        local tabSnaps = {}
         local sawAnyClassicTalents = false
-        for stepIdx, step in ipairs(build.order) do
-            local tabIdx, wantName, wantRank = step[1], string.lower(step[2]), step[3]
-            local okN, numTalents = pcall(GetNumTalents, tabIdx)
-            if okN and type(numTalents) == "number" and numTalents > 0 then
+        for tabIdx = 1, 3 do
+            local snap = SnapshotClassicTab(tabIdx)
+            if snap then
+                tabSnaps[tabIdx] = snap
                 sawAnyClassicTalents = true
-                for tIdx = 1, numTalents do
-                    local okT, tName, _, _, _, curRank, maxRank = pcall(GetTalentInfo, tabIdx, tIdx)
-                    if okT and tName and not (C and C.IsSecret and C.IsSecret(tName)) and string.find(string.lower(tName), wantName, 1, true) then
-                        local target = math.min(wantRank or maxRank or 1, maxRank or 1)
-                        if (curRank or 0) < target then
-                            return {
-                                tab = tabIdx,
-                                index = tIdx,
-                                name = tName,
-                                curRank = curRank or 0,
-                                targetRank = target,
-                                stepNum = stepIdx,
-                                source = "classic",
-                            }, build
+            end
+        end
+
+        if sawAnyClassicTalents then
+            local firstLockedTab = nil
+            local firstLockedTier = nil
+
+            for stepIdx, step in ipairs(build.order) do
+                local tabIdx, wantName, wantRank = step[1], step[2], step[3]
+                local snap = tabSnaps[tabIdx]
+                if snap then
+                    local t = MatchClassicTalentByName(snap, wantName)
+                    if t then
+                        local target = math.min(wantRank or t.maxRank or 1, t.maxRank or 1)
+                        if t.curRank < target then
+                            local unlocked, reason, detail = IsClassicTalentUnlocked(snap, t)
+                            if unlocked then
+                                return {
+                                    tab = tabIdx,
+                                    index = t.index,
+                                    name = t.name,
+                                    curRank = t.curRank,
+                                    targetRank = target,
+                                    tier = t.tier,
+                                    stepNum = stepIdx,
+                                    source = "classic",
+                                }, build
+                            elseif reason == "prereq" and detail then
+                                -- If locked by a prerequisite arrow whose own tier is unlocked, recommend that prerequisite!
+                                local prUnlocked = IsClassicTalentUnlocked(snap, detail)
+                                if prUnlocked then
+                                    return {
+                                        tab = tabIdx,
+                                        index = detail.index,
+                                        name = detail.name,
+                                        curRank = detail.curRank,
+                                        targetRank = detail.maxRank,
+                                        tier = detail.tier,
+                                        stepNum = stepIdx,
+                                        source = "classic",
+                                        isFallback = true,
+                                    }, build
+                                end
+                            end
+
+                            if not firstLockedTab then
+                                firstLockedTab = tabIdx
+                                firstLockedTier = t.tier
+                            end
                         end
                     end
                 end
             end
-        end
-        if sawAnyClassicTalents then
+
+            -- Fallback: desired build step is in a locked tier -> pick highest-priority UNLOCKED lower-tier talent
+            -- in the SAME tab (Row 1 / Row 2) to legally advance pointsSpent toward (tier - 1) * 5!
+            if firstLockedTab and tabSnaps[firstLockedTab] then
+                local snap = tabSnaps[firstLockedTab]
+                local bestFallback = nil
+                for _, t in ipairs(snap.talents) do
+                    if t.tier < (firstLockedTier or 99) then
+                        local unlocked = IsClassicTalentUnlocked(snap, t)
+                        if unlocked then
+                            if not bestFallback
+                                or t.tier < bestFallback.tier
+                                or (t.tier == bestFallback.tier and t.maxRank > bestFallback.maxRank)
+                                or (t.tier == bestFallback.tier and t.maxRank == bestFallback.maxRank and t.col < bestFallback.col) then
+                                bestFallback = t
+                            end
+                        end
+                    end
+                end
+                if bestFallback then
+                    return {
+                        tab = firstLockedTab,
+                        index = bestFallback.index,
+                        name = bestFallback.name,
+                        curRank = bestFallback.curRank,
+                        targetRank = bestFallback.maxRank,
+                        tier = bestFallback.tier,
+                        stepNum = 0,
+                        source = "classic",
+                        isFallback = true,
+                    }, build
+                end
+            end
+
             return nil, build
         end
     end
@@ -713,6 +993,104 @@ function TA:FindNextRecommendedTalent()
     end
 
     return nil, build
+end
+
+-- Live Tree Audit Command (/he talent audit): checks every saved build for current class against live client tree
+function TA:AuditClassBuilds()
+    local builds, classToken = TA:GetPlayerClassBuilds()
+    NS:Print("=== WOWEngine Live Talent Tree Audit (" .. tostring(classToken or "?") .. ") ===")
+
+    -- 1. Classic / WoW Forever 3-tab audit
+    local tabSnaps = {}
+    local hasClassic = false
+    if GetNumTalents and GetTalentInfo then
+        for tabIdx = 1, 3 do
+            local snap = SnapshotClassicTab(tabIdx)
+            if snap then
+                tabSnaps[tabIdx] = snap
+                hasClassic = true
+            end
+        end
+    end
+
+    if hasClassic then
+        for _, build in ipairs(builds) do
+            local simTabPoints = { [1] = 0, [2] = 0, [3] = 0 }
+            local simRanks = {}
+            local missingIssues = {}
+            local lockedIssues = {}
+
+            for stepIdx, step in ipairs(build.order or {}) do
+                local tabIdx, wantName, wantRank = step[1], step[2], step[3]
+                local snap = tabSnaps[tabIdx]
+                local t = snap and MatchClassicTalentByName(snap, wantName) or nil
+                if not t then
+                    table.insert(missingIssues, string.format("Step #%d (Tab %d): '%s' does NOT exist in live client", stepIdx, tabIdx or 0, tostring(wantName)))
+                else
+                    local reqPts = (math.max(1, t.tier) - 1) * 5
+                    local curTabPts = simTabPoints[tabIdx] or 0
+                    if curTabPts < reqPts then
+                        table.insert(lockedIssues, string.format("Step #%d (Tab %d): '%s' is Row %d (needs %d pts, only %d spent so far)", stepIdx, tabIdx, t.name, t.tier, reqPts, curTabPts))
+                    end
+                    for _, pr in ipairs(t.prereqs or {}) do
+                        local req = snap.byGrid[pr.tier .. ":" .. pr.col]
+                        if req then
+                            local rKey = tabIdx .. ":" .. req.index
+                            if (simRanks[rKey] or 0) < req.maxRank then
+                                table.insert(lockedIssues, string.format("Step #%d (Tab %d): '%s' missing maxed prereq '%s'", stepIdx, tabIdx, t.name, req.name))
+                            end
+                        end
+                    end
+                    local key = tabIdx .. ":" .. t.index
+                    local prevSim = simRanks[key] or 0
+                    local target = math.min(wantRank or t.maxRank or 1, t.maxRank or 1)
+                    local added = math.max(0, target - prevSim)
+                    simRanks[key] = prevSim + added
+                    simTabPoints[tabIdx] = curTabPts + added
+                end
+            end
+
+            if #missingIssues == 0 and #lockedIssues == 0 then
+                NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps exist & pass (tier-1)*5 and prereq checks.", build.label, #(build.order or {})))
+            else
+                NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d locked-tier/prereq issue(s):", build.label, #missingIssues, #lockedIssues))
+                for _, m in ipairs(missingIssues) do
+                    NS:Print("    |cffff5555MISSING:|r " .. m)
+                end
+                for _, l in ipairs(lockedIssues) do
+                    NS:Print("    |cffff9900LOCKED:|r " .. l)
+                end
+            end
+        end
+        return
+    end
+
+    -- 2. Modern C_Traits tree audit fallback
+    local modernNodes = CollectModernTreeSnapshot()
+    if #modernNodes == 0 then
+        NS:Print("|cffff9900Talent tree data not loaded yet.|r Open your Talent window (press N) once, then re-run |cffffd100/he talent audit|r.")
+        return
+    end
+
+    for _, build in ipairs(builds) do
+        local missingIssues = {}
+        local lockedIssues = {}
+        for stepIdx, step in ipairs(build.order or {}) do
+            local node = MatchModernNodeByName(modernNodes, step[2])
+            if not node then
+                table.insert(missingIssues, string.format("Step #%d: '%s' does NOT exist in live modern tree", stepIdx, tostring(step[2])))
+            elseif (node.curRank or 0) == 0 and not node.unlocked then
+                table.insert(lockedIssues, string.format("Step #%d: '%s' currently locked by gate/edge requirements", stepIdx, tostring(step[2])))
+            end
+        end
+        if #missingIssues == 0 and #lockedIssues == 0 then
+            NS:Print(string.format("  |cff00ff00[PASS]|r |cffffd100%s|r — All %d steps verified in modern tree.", build.label, #(build.order or {})))
+        else
+            NS:Print(string.format("  |cffff5555[ISSUES]|r |cffffd100%s|r — %d missing, %d currently locked:", build.label, #missingIssues, #lockedIssues))
+            for _, m in ipairs(missingIssues) do NS:Print("    |cffff5555MISSING:|r " .. m) end
+            for _, l in ipairs(lockedIssues) do NS:Print("    |cffff9900LOCKED:|r " .. l) end
+        end
+    end
 end
 
 -- Create high-contrast Gold Border + Additive Glow + NEXT Pill around recommended talent button

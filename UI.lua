@@ -165,10 +165,23 @@ SlashCmdList["WOWENGINEHELP"] = function(msg)
                 WOWEngineDB.multiAltMode = "roundrobin"
             end
             NS:Print("Multi-Alt Distribution Mode set to: |cffffd100" .. WOWEngineDB.multiAltMode .. "|r")
-        elseif cmd == "talents" or cmd == "spec" then
-            if NS.TalentAdvisor and NS.TalentAdvisor.PrintNextPick then NS.TalentAdvisor:PrintNextPick() end
+        elseif cmd == "talent" or cmd == "talents" or cmd == "spec" then
+            local sub = string.lower(C.Trim(rest or ""))
+            if sub == "audit" then
+                if NS.TalentAdvisor and NS.TalentAdvisor.AuditClassBuilds then
+                    NS.TalentAdvisor:AuditClassBuilds()
+                end
+            elseif NS.TalentAdvisor and NS.TalentAdvisor.PrintNextPick then
+                NS.TalentAdvisor:PrintNextPick()
+            end
         elseif cmd == "stats" or cmd == "caps" or cmd == "statcaps" then
             if NS.StatCapsUI and NS.StatCapsUI.Toggle then NS.StatCapsUI:Toggle() end
+        elseif cmd == "plan" or cmd == "planbuilder" then
+            if NS.PlanBuilder and NS.PlanBuilder.Show then NS.PlanBuilder:Show() end
+        elseif cmd == "nag" or cmd == "pointnag" then
+            if NS.PointNagBanner and NS.PointNagBanner.HandleSlashCommand then
+                NS.PointNagBanner:HandleSlashCommand(rest)
+            end
         elseif cmd == "wavewizard" or cmd == "wizard" then
             if NS.WaveTracker and NS.WaveTracker.OpenWaveWizard then NS.WaveTracker:OpenWaveWizard() end
         elseif cmd == "options" or cmd == "config" or cmd == "settings" then
@@ -434,7 +447,7 @@ local function ToggleMinimapQuickMenu(anchorBtn)
     if not menu then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         menu = CreateFrame("Frame", "WOWEngineMinimapMenu", UIParent, template)
-        menu:SetSize(208, 372)
+        menu:SetSize(208, 396)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(160)
         menu:SetClampedToScreen(true)
@@ -467,6 +480,7 @@ local function ToggleMinimapQuickMenu(anchorBtn)
         closeBtn:SetScript("OnClick", function() menu:Hide() end)
 
         local actions = {
+            { label = "Plan Builder (/he plan)", fn = function() if NS.PlanBuilder then NS.PlanBuilder:Show() end end },
             { label = "Open Setup Wizard",       fn = function() SafeOpenOnboarding("show", 1) end },
             { label = "AddOn Options (Quick)",   fn = function() if NS.SettingsPanel then NS.SettingsPanel:Open() end end },
             { label = "Questie & Wave Sync",     fn = function() if NS.WaveTracker then NS.WaveTracker:ShowUI() end end },

@@ -152,6 +152,13 @@ local function ClassifyTradeGoodByName(itemName)
     return nil
 end
 
+local function IsBankAltEnabled()
+    if WOWEngineDB and type(WOWEngineDB.userPlan) == "table" and WOWEngineDB.userPlan.useBankAlt == false then
+        return false
+    end
+    return true
+end
+
 local function IsBagOrContainerItem(classID, itemEquipLoc, itemType)
     local containerClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Container) or 1
     local quiverClassID = (Enum and Enum.ItemClass and Enum.ItemClass.Quiver) or 11
@@ -216,7 +223,7 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
     local cat = ClassifyTradeGoodByName(itemName)
     if cat then return cat, itemName end
 
-    -- Tradeable Uncommon/Rare/Epic Armor & Weapons (BoEs) -> Enchanter DisenchantBoE if configured, else BankAlt
+    -- Tradeable Uncommon/Rare/Epic Armor & Weapons (BoEs) -> Enchanter DisenchantBoE if configured, else BankAlt (if enabled)
     if quality and (quality >= 2 and quality <= 4) and (classID == 2 or classID == 4 or itemType == "Armor" or itemType == "Weapon") then
         -- Exclude shirts (INVTYPE_BODY) and tabards (INVTYPE_TABARD) which cannot be disenchanted
         if itemEquipLoc ~= "INVTYPE_BODY" and itemEquipLoc ~= "INVTYPE_TABARD" then
@@ -224,7 +231,9 @@ function MR:ResolveCategoryForItem(itemLink, itemID)
             if type(deTargets) == "table" and #deTargets > 0 then
                 return "DisenchantBoE", itemName
             end
-            return "BankAlt", itemName
+            if IsBankAltEnabled() then
+                return "BankAlt", itemName
+            end
         end
     end
 
@@ -870,7 +879,7 @@ function MR:BuildShipmentPlan(forcedTarget)
                                         dest = bagDest
                                     else
                                         local bagEligible, bagSelf = NS.Roster:GetEligibleTargetsForCategory("Bags")
-                                        if #bagEligible == 0 and not bagSelf then
+                                        if #bagEligible == 0 and not bagSelf and IsBankAltEnabled() then
                                             bagEligible, bagSelf = NS.Roster:GetEligibleTargetsForCategory("BankAlt")
                                         end
                                         if #bagEligible == 0 then
@@ -1084,7 +1093,7 @@ function MR:StageBoEsOnly()
     NS.Roster:ScanAll(true)
     local eligible, isSelf = NS.Roster:GetEligibleTargetsForCategory("DisenchantBoE")
     local catUsed = "DisenchantBoE"
-    if #eligible == 0 and not isSelf then
+    if #eligible == 0 and not isSelf and IsBankAltEnabled() then
         eligible, isSelf = NS.Roster:GetEligibleTargetsForCategory("BankAlt")
         catUsed = "BankAlt"
     end

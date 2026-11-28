@@ -9,10 +9,13 @@ WT.questieDock = nil
 WT.manageFrame = nil
 WT.managePage = 1
 WT.trainerPinFrame = nil
+WT.trainerPinFullList = {}
 WT.trainerPinList = {}
+WT.trainerPinCityFilter = "All"
 WT.trainerPinSelected = 1
 WT.trainerPinPage = 1
 WT.lastTomTomUID = nil
+WT.activeTab = "checklist"
 
 local function ApplyBlueGoldBackdrop(f, alpha)
     if not f then return end
@@ -749,11 +752,119 @@ function WT:RefreshTrainerPinPopup()
     end
 end
 
+local function GetUniqueTrainerCities(fullList)
+    local cities = { "All" }
+    local seen = { ["All"] = true }
+    local others = {}
+    for _, entry in ipairs(fullList or {}) do
+        local z = entry and entry.zone
+        if z and z ~= "" and not seen[z] then
+            seen[z] = true
+            table.insert(others, z)
+        end
+    end
+    table.sort(others)
+    for _, z in ipairs(others) do
+        table.insert(cities, z)
+    end
+    return cities
+end
+
+function WT:ApplyTrainerCityFilter(cityName)
+    WT.trainerPinCityFilter = (cityName and cityName ~= "") and cityName or "All"
+    local filtered = {}
+    for _, entry in ipairs(WT.trainerPinFullList or {}) do
+        if WT.trainerPinCityFilter == "All" or entry.zone == WT.trainerPinCityFilter then
+            table.insert(filtered, entry)
+        end
+    end
+    WT.trainerPinList = filtered
+    WT.trainerPinPage = 1
+    WT.trainerPinSelected = (#filtered > 0) and 1 or 0
+    if WT.trainerPinFrame and WT.trainerPinFrame.cityBtn then
+        WT.trainerPinFrame.cityBtn:SetText(WT.trainerPinCityFilter .. "  v")
+    end
+    if WT.trainerPinFrame and WT.trainerPinFrame.cityMenu then
+        WT.trainerPinFrame.cityMenu:Hide()
+    end
+    WT:RefreshTrainerPinPopup()
+end
+
+function WT:ToggleTrainerCityMenu()
+    local tf = WT.trainerPinFrame
+    if not tf or not tf.cityBtn then return end
+    if tf.cityMenu and tf.cityMenu:IsShown() then
+        tf.cityMenu:Hide()
+        return
+    end
+
+    if not tf.cityMenu then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local menu = CreateFrame("Frame", "WOWEngineTrainerCityDropdown", tf, template)
+        menu:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu:SetFrameLevel(185)
+        menu:SetClampedToScreen(true)
+        menu:EnableMouse(true)
+        ApplyBlueGoldBackdrop(menu, 0.98)
+        menu.optionBtns = {}
+        tf.cityMenu = menu
+    end
+
+    local menu = tf.cityMenu
+    local cities = GetUniqueTrainerCities(WT.trainerPinFullList)
+    local rowH = 22
+    local menuH = (#cities * rowH) + 12
+    menu:SetSize(210, math.max(36, menuH))
+    menu:ClearAllPoints()
+    menu:SetPoint("TOPLEFT", tf.cityBtn, "BOTTOMLEFT", 0, -2)
+
+    for i, city in ipairs(cities) do
+        local btn = menu.optionBtns[i]
+        if not btn then
+            btn = CreateFrame("Button", nil, menu)
+            btn:SetHeight(20)
+            local bg = btn:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints(btn)
+            btn.bg = bg
+            local lbl = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            lbl:SetPoint("LEFT", 8, 0)
+            lbl:SetPoint("RIGHT", -8, 0)
+            lbl:SetJustifyH("LEFT")
+            if lbl.SetWordWrap then lbl:SetWordWrap(false) end
+            btn.lbl = lbl
+            menu.optionBtns[i] = btn
+        end
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", menu, "TOPLEFT", 6, -6 - (i - 1) * rowH)
+        btn:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -6, -6 - (i - 1) * rowH)
+
+        local isSel = (city == WT.trainerPinCityFilter)
+        btn.lbl:SetText(isSel and ("|cffffd100> " .. city .. "|r") or city)
+        if btn.bg.SetColorTexture then
+            if isSel then
+                btn.bg:SetColorTexture(0.14, 0.30, 0.56, 0.90)
+            else
+                btn.bg:SetColorTexture(0.05, 0.12, 0.24, (i % 2 == 0) and 0.50 or 0.30)
+            end
+        end
+        btn:SetScript("OnClick", function()
+            WT:ApplyTrainerCityFilter(city)
+        end)
+        btn:Show()
+    end
+    for i = #cities + 1, #menu.optionBtns do
+        menu.optionBtns[i]:Hide()
+    end
+
+    menu:Show()
+    menu:Raise()
+end
+
 function WT:OpenTrainerPinPopup(query)
     if not WT.trainerPinFrame then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local tf = CreateFrame("Frame", "WOWEngineTrainerPinFrame", UIParent, template)
-        tf:SetSize(610, 345)
+        tf:SetSize(620, 380)
         tf:SetPoint("CENTER", UIParent, "CENTER", 0, 25)
         tf:SetFrameStrata("DIALOG")
         tf:SetFrameLevel(155)
@@ -763,6 +874,9 @@ function WT:OpenTrainerPinPopup(query)
         tf:RegisterForDrag("LeftButton")
         tf:SetScript("OnDragStart", function(self) self:StartMoving() end)
         tf:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        tf:HookScript("OnHide", function()
+            if tf.cityMenu then tf.cityMenu:Hide() end
+        end)
         ApplyBlueGoldBackdrop(tf, 0.98)
 
         if UISpecialFrames then
@@ -781,16 +895,39 @@ function WT:OpenTrainerPinPopup(query)
 
         local sub = tf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
-        sub:SetText("Choose ONE closest trainer by tier below, then click |cffffd100Place Map Pin|r.")
+        sub:SetText("Filter by city/hub or choose ONE closest trainer by tier, then click |cffffd100Place Map Pin|r.")
         tf.sub = sub
 
         local closeBtn = CreateFrame("Button", nil, tf, "UIPanelCloseButton")
         closeBtn:SetPoint("TOPRIGHT", -4, -4)
         closeBtn:SetScript("OnClick", function() tf:Hide() end)
 
+        -- City / Hub Filter Dropdown Row
+        local cityLbl = tf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        cityLbl:SetPoint("TOPLEFT", 14, -58)
+        cityLbl:SetText("|cffffd100City / Hub Filter:|r")
+
+        local cityBtn = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        cityBtn:SetSize(210, 22)
+        cityBtn:SetPoint("LEFT", cityLbl, "RIGHT", 8, 0)
+        cityBtn:SetText("All  v")
+        cityBtn:SetScript("OnClick", function()
+            WT:ToggleTrainerCityMenu()
+        end)
+        tf.cityBtn = cityBtn
+
+        local resetCityBtn = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        resetCityBtn:SetSize(64, 22)
+        resetCityBtn:SetPoint("LEFT", cityBtn, "RIGHT", 6, 0)
+        resetCityBtn:SetText("All")
+        resetCityBtn:SetScript("OnClick", function()
+            WT:ApplyTrainerCityFilter("All")
+        end)
+        tf.resetCityBtn = resetCityBtn
+
         tf.rows = {}
         for i = 1, 8 do
-            local rowY = -56 - (i - 1) * 28
+            local rowY = -86 - (i - 1) * 28
             local row = CreateFrame("Button", nil, tf)
             row:SetPoint("TOPLEFT", 12, rowY)
             row:SetPoint("TOPRIGHT", -12, rowY)
@@ -871,10 +1008,8 @@ function WT:OpenTrainerPinPopup(query)
         WT.trainerPinFrame = tf
     end
 
-    WT.trainerPinList = WT:BuildTrainerPinList(query)
-    WT.trainerPinPage = 1
-    WT.trainerPinSelected = (#WT.trainerPinList > 0) and 1 or 0
-    WT:RefreshTrainerPinPopup()
+    WT.trainerPinFullList = WT:BuildTrainerPinList(query)
+    WT:ApplyTrainerCityFilter("All")
     WT.trainerPinFrame:Show()
     WT.trainerPinFrame:Raise()
 end
@@ -1316,12 +1451,291 @@ end
 -- ==========================================
 local wtCbCounter = 0
 
-function WT:ShowUI()
+local FALLBACK_CLASS_COLORS = {
+    WARRIOR     = "ffc79c6e",
+    PALADIN     = "fff58cba",
+    HUNTER      = "ffabd473",
+    ROGUE       = "fffff569",
+    PRIEST      = "ffffffff",
+    DEATHKNIGHT = "ffc41f3b",
+    SHAMAN      = "ff0070de",
+    MAGE        = "ff69ccf0",
+    WARLOCK     = "ff9482c9",
+    MONK        = "ff00ff96",
+    DRUID       = "ffff7d0a",
+    DEMONHUNTER = "ffa330c9",
+    EVOKER      = "ff33937f",
+}
+
+local function GetClassColorHex(classToken)
+    local tok = string.upper(tostring(classToken or ""))
+    if RAID_CLASS_COLORS and RAID_CLASS_COLORS[tok] then
+        local c = RAID_CLASS_COLORS[tok]
+        if c.colorStr then return c.colorStr end
+        return string.format("ff%02x%02x%02x", math.floor((c.r or 1) * 255), math.floor((c.g or 1) * 255), math.floor((c.b or 1) * 255))
+    end
+    return FALLBACK_CLASS_COLORS[tok] or "ffffd100"
+end
+
+local function ComputeCharacterPhasePercents(charInfo, ws)
+    local lv = tonumber(charInfo and charInfo.level) or 1
+    local maxProf = 0
+    local maxedProfCount = 0
+    if charInfo and type(charInfo.professions) == "table" then
+        for _, r in pairs(charInfo.professions) do
+            local nr = tonumber(r) or 0
+            if nr > maxProf then maxProf = nr end
+            if nr >= 300 then maxedProfCount = maxedProfCount + 1 end
+        end
+    end
+
+    local cKey = C.CanonicalCharKey(charInfo and charInfo.name or "") or ""
+    local checks = (ws and ws.completedChecklist and ws.completedChecklist[cKey]) or {}
+
+    local function countChecks(ids)
+        local done = 0
+        for _, id in ipairs(ids) do
+            if checks[id] then done = done + 1 end
+        end
+        return (#ids > 0) and (done / #ids) or 0
+    end
+
+    local clamp01 = function(x) return math.max(0, math.min(1, x)) end
+
+    -- Phase 1: Starter / Cap (Lv 25 + Prof 150 + Wave 1 milestones)
+    local p1 = math.floor(100 * (0.50 * clamp01(lv / 25) + 0.30 * clamp01(maxProf / 150) + 0.20 * countChecks({ "lv5_profs", "lv10_class", "lv15_novice", "lv20_craft", "lv25_legacy" })) + 0.5)
+    if lv >= 25 and maxProf >= 150 then p1 = 100 end
+
+    -- Phase 2: Mid-Tier (Lv 45 + Prof 225 + Wave 2 milestones)
+    local p2 = math.floor(100 * (0.50 * clamp01((lv - 25) / 20) + 0.30 * clamp01((maxProf - 150) / 75) + 0.20 * countChecks({ "lv35_exp", "lv45_legacy" })) + 0.5)
+    if lv >= 45 and maxProf >= 225 then p2 = 100 end
+
+    -- Phase 3: Endgame / Pre-Raid (Lv 60 + Prof 300 + Wave 3 milestone)
+    local p3 = math.floor(100 * (0.55 * clamp01((lv - 45) / 15) + 0.30 * clamp01((maxProf - 225) / 75) + 0.15 * countChecks({ "lv60_legacy" })) + 0.5)
+    if lv >= 60 and maxProf >= 300 then p3 = 100 end
+
+    -- Phase 4: Raid / BIS (Lv 60 + 2x Prof 300 + Endgame Checklist)
+    local p4 = math.floor(100 * (0.40 * clamp01((lv - 55) / 5) + 0.30 * clamp01(maxedProfCount / 2) + 0.30 * countChecks({ "lv60_legacy" })) + 0.5)
+
+    return p1, p2, p3, p4
+end
+
+local function CreateMiniPhaseBar(parent, width, height)
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetSize(width, height)
+
+    local bg = bar:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints(bar)
+    if bg.SetColorTexture then bg:SetColorTexture(0.03, 0.07, 0.15, 0.92) end
+    bar.bg = bg
+
+    local fill = bar:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 1, 1)
+    fill:SetWidth(1)
+    bar.fill = fill
+
+    local txt = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    txt:SetPoint("CENTER", bar, "CENTER", 0, 0)
+    bar.txt = txt
+    bar.fullW = width - 2
+    return bar
+end
+
+local function UpdateMiniPhaseBar(bar, pct)
+    local p = math.max(0, math.min(100, tonumber(pct) or 0))
+    local fillW = math.max(1, math.floor((bar.fullW or 86) * (p / 100)))
+    bar.fill:SetWidth(fillW)
+    if p <= 0 then
+        bar.fill:Hide()
+        bar.txt:SetText("|cff777777--|r")
+    else
+        bar.fill:Show()
+        if p >= 100 then
+            if bar.fill.SetColorTexture then bar.fill:SetColorTexture(0.12, 0.68, 0.24, 0.92) end
+            bar.txt:SetText("|cffffffff100%|r")
+        elseif p >= 50 then
+            if bar.fill.SetColorTexture then bar.fill:SetColorTexture(0.82, 0.62, 0.12, 0.90) end
+            bar.txt:SetText("|cffffffff" .. p .. "%|r")
+        else
+            if bar.fill.SetColorTexture then bar.fill:SetColorTexture(0.12, 0.48, 0.78, 0.88) end
+            bar.txt:SetText("|cffffffff" .. p .. "%|r")
+        end
+    end
+end
+
+function WT:SetWaveTrackerTab(tabId)
+    local f = WT.frame
+    if not f then return end
+    WT.activeTab = (tabId == "matrix") and "matrix" or "checklist"
+
+    if WT.activeTab == "matrix" then
+        f:SetSize(710, 575)
+        f.checklistPanel:Hide()
+        f.matrixPanel:Show()
+        f.tabChecklistBtn:SetText("Questie & Checklist")
+        f.tabMatrixBtn:SetText("|cffffd100Waves & Phases Matrix|r")
+        WT:RefreshWavePhaseMatrix()
+    else
+        f:SetSize(565, 575)
+        f.matrixPanel:Hide()
+        f.checklistPanel:Show()
+        f.tabChecklistBtn:SetText("|cffffd100Questie & Checklist|r")
+        f.tabMatrixBtn:SetText("Waves & Phases Matrix")
+    end
+end
+
+function WT:RefreshWavePhaseMatrix()
+    local f = WT.frame
+    if not f or not f.matrixPanel or not f.matrixScrollChild then return end
+    local child = f.matrixScrollChild
+    local ws = NS:GetWaveState()
+    local gates = ws.gates or { 25, 45, 60 }
+    local list = NS.Roster:GetOwnLevelingRoster()
+
+    -- Group characters into Waves 1..4
+    local numWaves = math.max(4, #gates)
+    local byWave = {}
+    for w = 1, numWaves do byWave[w] = {} end
+    for _, info in ipairs(list) do
+        local cKey = C.CanonicalCharKey(info.name)
+        local assigned = (ws.waveAssignments and tonumber(ws.waveAssignments[cKey])) or 1
+        if assigned < 1 then assigned = 1 end
+        if assigned > numWaves then assigned = numWaves end
+        table.insert(byWave[assigned], info)
+    end
+
+    for w = 1, numWaves do
+        table.sort(byWave[w], function(a, b)
+            local la, lb = tonumber(a.level) or 0, tonumber(b.level) or 0
+            if la ~= lb then return la > lb end
+            return string.lower(a.name or "") < string.lower(b.name or "")
+        end)
+    end
+
+    f.matrixWaveHeaders = f.matrixWaveHeaders or {}
+    f.matrixCharRows = f.matrixCharRows or {}
+    local hdrUsed, rowUsed = 0, 0
+    local curY = 4
+
+    for w = 1, numWaves do
+        local chars = byWave[w]
+        local gateLv = tonumber(gates[w]) or (w == 4 and 60 or 25)
+        local readyCount = 0
+        for _, ch in ipairs(chars) do
+            if (tonumber(ch.level) or 0) >= gateLv then readyCount = readyCount + 1 end
+        end
+
+        hdrUsed = hdrUsed + 1
+        local hdr = f.matrixWaveHeaders[hdrUsed]
+        if not hdr then
+            hdr = CreateFrame("Frame", nil, child)
+            hdr:SetHeight(22)
+            local bg = hdr:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints(hdr)
+            if bg.SetColorTexture then bg:SetColorTexture(0.08, 0.20, 0.42, 0.92) end
+            hdr.bg = bg
+            local txt = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            txt:SetPoint("LEFT", 8, 0)
+            txt:SetPoint("RIGHT", -8, 0)
+            txt:SetJustifyH("LEFT")
+            hdr.txt = txt
+            f.matrixWaveHeaders[hdrUsed] = hdr
+        end
+        hdr:ClearAllPoints()
+        hdr:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -curY)
+        hdr:SetPoint("TOPRIGHT", child, "TOPRIGHT", -2, -curY)
+        local statusPart = (#chars > 0)
+            and string.format("(%d/%d at Gate Lv %d)", readyCount, #chars, gateLv)
+            or "(No characters assigned)"
+        hdr.txt:SetText(string.format("|cffffd100WAVE %d|r  |cff00aeff%s|r", w, statusPart))
+        hdr:Show()
+        curY = curY + 26
+
+        for _, ch in ipairs(chars) do
+            rowUsed = rowUsed + 1
+            local row = f.matrixCharRows[rowUsed]
+            if not row then
+                row = CreateFrame("Frame", nil, child)
+                row:SetHeight(38)
+                local bg = row:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints(row)
+                row.bg = bg
+
+                local nameTxt = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                nameTxt:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -4)
+                nameTxt:SetWidth(234)
+                nameTxt:SetJustifyH("LEFT")
+                if nameTxt.SetWordWrap then nameTxt:SetWordWrap(false) end
+                row.nameTxt = nameTxt
+
+                local profTxt = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                profTxt:SetPoint("TOPLEFT", nameTxt, "BOTTOMLEFT", 0, -2)
+                profTxt:SetWidth(234)
+                profTxt:SetJustifyH("LEFT")
+                if profTxt.SetWordWrap then profTxt:SetWordWrap(false) end
+                row.profTxt = profTxt
+
+                row.phaseBars = {}
+                for pIdx = 1, 4 do
+                    local pb = CreateMiniPhaseBar(row, 92, 18)
+                    pb:SetPoint("LEFT", row, "LEFT", 248 + (pIdx - 1) * 98, 0)
+                    row.phaseBars[pIdx] = pb
+                end
+
+                f.matrixCharRows[rowUsed] = row
+            end
+
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", child, "TOPLEFT", 2, -curY)
+            row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -2, -curY)
+            if row.bg.SetColorTexture then
+                row.bg:SetColorTexture(0.04, 0.10, 0.21, (rowUsed % 2 == 0) and 0.55 or 0.30)
+            end
+
+            local classHex = GetClassColorHex(ch.class)
+            local selfTag = C.IsCurrentPlayer(ch.name) and " |cff00aeff(You)|r" or ""
+            row.nameTxt:SetText(string.format("|c%s%s|r%s  |cffffffffLv%d|r", classHex, ch.name or "?", selfTag, tonumber(ch.level) or 0))
+
+            local pParts = {}
+            if type(ch.professions) == "table" then
+                for pn, pr in pairs(ch.professions) do
+                    table.insert(pParts, string.format("%s %d", string.sub(pn, 1, 4), tonumber(pr) or 1))
+                end
+                table.sort(pParts)
+            end
+            if type(ch.subProfessions) == "table" and ch.subProfessions["First Aid"] then
+                table.insert(pParts, "FA " .. tostring(ch.subProfessions["First Aid"]))
+            end
+            row.profTxt:SetText((#pParts > 0) and ("|cffaaaaaa" .. table.concat(pParts, " | ") .. "|r") or "|cff777777No professions scanned|r")
+
+            local p1, p2, p3, p4 = ComputeCharacterPhasePercents(ch, ws)
+            UpdateMiniPhaseBar(row.phaseBars[1], p1)
+            UpdateMiniPhaseBar(row.phaseBars[2], p2)
+            UpdateMiniPhaseBar(row.phaseBars[3], p3)
+            UpdateMiniPhaseBar(row.phaseBars[4], p4)
+
+            row:Show()
+            curY = curY + 40
+        end
+        curY = curY + 4
+    end
+
+    for i = hdrUsed + 1, #f.matrixWaveHeaders do f.matrixWaveHeaders[i]:Hide() end
+    for i = rowUsed + 1, #f.matrixCharRows do f.matrixCharRows[i]:Hide() end
+
+    child:SetHeight(math.max(360, curY + 12))
+    if f.matrixScroll and f.matrixScroll.UpdateScrollChildRect then
+        pcall(f.matrixScroll.UpdateScrollChildRect, f.matrixScroll)
+    end
+end
+
+function WT:ShowUI(initialTab)
     NS.Roster:ScanAll(true)
     if not WT.frame then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local f = CreateFrame("Frame", "WOWEngineWaveTrackerFrame", UIParent, template)
-        f:SetSize(555, 540)
+        f:SetSize(565, 575)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
         f:SetFrameStrata("DIALOG")
         f:SetFrameLevel(115)
@@ -1355,37 +1769,68 @@ function WT:ShowUI()
         closeBtn:SetPoint("TOPRIGHT", -4, -4)
         closeBtn:SetScript("OnClick", function() f:Hide() end)
 
-        local statusTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        statusTxt:SetPoint("TOPLEFT", 16, -60)
-        statusTxt:SetWidth(510)
+        -- Top Tab Selector Row: [Questie & Checklist] [Waves & Phases Matrix]
+        local tabChecklistBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        tabChecklistBtn:SetSize(164, 22)
+        tabChecklistBtn:SetPoint("TOPLEFT", 16, -56)
+        tabChecklistBtn:SetText("|cffffd100Questie & Checklist|r")
+        tabChecklistBtn:SetScript("OnClick", function() WT:SetWaveTrackerTab("checklist") end)
+        f.tabChecklistBtn = tabChecklistBtn
+
+        local tabMatrixBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        tabMatrixBtn:SetSize(176, 22)
+        tabMatrixBtn:SetPoint("LEFT", tabChecklistBtn, "RIGHT", 6, 0)
+        tabMatrixBtn:SetText("Waves & Phases Matrix")
+        tabMatrixBtn:SetScript("OnClick", function() WT:SetWaveTrackerTab("matrix") end)
+        f.tabMatrixBtn = tabMatrixBtn
+
+        local planTopBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        planTopBtn:SetSize(112, 22)
+        planTopBtn:SetPoint("TOPRIGHT", -16, -56)
+        planTopBtn:SetText("Plan Builder")
+        planTopBtn:SetScript("OnClick", function()
+            if NS.PlanBuilder and NS.PlanBuilder.Show then NS.PlanBuilder:Show() end
+        end)
+
+        -- ==========================================
+        -- TAB 1 PANEL: QUESTIE & CHECKLIST (Intact)
+        -- ==========================================
+        local checklistPanel = CreateFrame("Frame", nil, f)
+        checklistPanel:SetPoint("TOPLEFT", 0, -84)
+        checklistPanel:SetPoint("BOTTOMRIGHT", 0, 44)
+        f.checklistPanel = checklistPanel
+
+        local statusTxt = checklistPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        statusTxt:SetPoint("TOPLEFT", 16, -4)
+        statusTxt:SetWidth(520)
         statusTxt:SetJustifyH("LEFT")
         f.statusTxt = statusTxt
 
-        local bPrevWave = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bPrevWave = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bPrevWave:SetSize(22, 24)
-        bPrevWave:SetPoint("TOPLEFT", 16, -104)
+        bPrevWave:SetPoint("TOPLEFT", 16, -48)
         bPrevWave:SetText("<")
         bPrevWave:SetScript("OnClick", function() WT:CycleWave(-1) end)
 
-        local bAdvance = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bAdvance = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bAdvance:SetSize(88, 24)
         bAdvance:SetPoint("LEFT", bPrevWave, "RIGHT", 2, 0)
         bAdvance:SetText("Switch Wave")
         bAdvance:SetScript("OnClick", function() WT:CycleWave(1) end)
 
-        local bNextWave = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bNextWave = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bNextWave:SetSize(22, 24)
         bNextWave:SetPoint("LEFT", bAdvance, "RIGHT", 2, 0)
         bNextWave:SetText(">")
         bNextWave:SetScript("OnClick", function() WT:CycleWave(1) end)
 
-        local bTestGate = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bTestGate = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bTestGate:SetSize(124, 24)
         bTestGate:SetPoint("LEFT", bNextWave, "RIGHT", 6, 0)
         bTestGate:SetText("Test Gate Prompt")
         bTestGate:SetScript("OnClick", function() WT:ShowGatePrompt(true) end)
 
-        local bTrainers = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bTrainers = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bTrainers:SetSize(130, 24)
         bTrainers:SetPoint("LEFT", bTestGate, "RIGHT", 6, 0)
         bTrainers:SetText("My Prof Trainers")
@@ -1397,7 +1842,7 @@ function WT:ShowUI()
             end
         end)
 
-        local bSnooze = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        local bSnooze = CreateFrame("Button", nil, checklistPanel, "UIPanelButtonTemplate")
         bSnooze:SetSize(74, 24)
         bSnooze:SetPoint("LEFT", bTrainers, "RIGHT", 6, 0)
         bSnooze:SetText("Snooze")
@@ -1406,35 +1851,11 @@ function WT:ShowUI()
             WT:RefreshUI()
         end)
 
-        local bManage = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bManage:SetSize(96, 24)
-        bManage:SetPoint("BOTTOMLEFT", 14, 12)
-        bManage:SetText("Manage Alts")
-        bManage:SetScript("OnClick", function()
-            WT:OpenManageAltsPopup()
-        end)
-
-        local bWizard = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bWizard:SetSize(112, 24)
-        bWizard:SetPoint("LEFT", bManage, "RIGHT", 6, 0)
-        bWizard:SetText("Wave Setup Wizard")
-        bWizard:SetScript("OnClick", function()
-            WT:OpenWaveWizard()
-        end)
-
-        local bProcess = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bProcess:SetSize(108, 24)
-        bProcess:SetPoint("LEFT", bWizard, "RIGHT", 6, 0)
-        bProcess:SetText("Wave Process")
-        bProcess:SetScript("OnClick", function()
-            WT:ShowWaveProcessPopup()
-        end)
-
         -- Toggle 1: Dock Heading on Questie Tracker
         wtCbCounter = wtCbCounter + 1
-        local cbDock = CreateFrame("CheckButton", "WOWEngineWaveCB" .. wtCbCounter, f, "UICheckButtonTemplate")
+        local cbDock = CreateFrame("CheckButton", "WOWEngineWaveCB" .. wtCbCounter, checklistPanel, "UICheckButtonTemplate")
         cbDock:SetSize(22, 22)
-        cbDock:SetPoint("TOPLEFT", 16, -134)
+        cbDock:SetPoint("TOPLEFT", 16, -78)
         local cbDockOld = _G["WOWEngineWaveCB" .. wtCbCounter .. "Text"] or cbDock.Text
         if cbDockOld and cbDockOld.SetText then cbDockOld:SetText("") end
         local cbDockLbl = cbDock:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1454,7 +1875,7 @@ function WT:ShowUI()
 
         -- Toggle 2: Own Logged-In Characters ONLY vs Include Altoholic
         wtCbCounter = wtCbCounter + 1
-        local cbAltoWave = CreateFrame("CheckButton", "WOWEngineWaveCB" .. wtCbCounter, f, "UICheckButtonTemplate")
+        local cbAltoWave = CreateFrame("CheckButton", "WOWEngineWaveCB" .. wtCbCounter, checklistPanel, "UICheckButtonTemplate")
         cbAltoWave:SetSize(22, 22)
         cbAltoWave:SetPoint("TOPLEFT", cbDock, "BOTTOMLEFT", 0, -2)
         local cbAltoOld = _G["WOWEngineWaveCB" .. wtCbCounter .. "Text"] or cbAltoWave.Text
@@ -1470,17 +1891,17 @@ function WT:ShowUI()
         end)
         f.cbAltoWave = cbAltoWave
 
-        local chkHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        chkHeader:SetPoint("TOPLEFT", 16, -186)
+        local chkHeader = checklistPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        chkHeader:SetPoint("TOPLEFT", 16, -130)
         chkHeader:SetText("|cffffd100Wave & Questie Milestone Checklist (Per Character):|r")
 
         f.checkRows = {}
         for idx, item in ipairs(WT.CHECKLIST) do
             wtCbCounter = wtCbCounter + 1
             local cbName = "WOWEngineWaveCB" .. wtCbCounter
-            local cb = CreateFrame("CheckButton", cbName, f, "UICheckButtonTemplate")
+            local cb = CreateFrame("CheckButton", cbName, checklistPanel, "UICheckButtonTemplate")
             cb:SetSize(22, 22)
-            cb:SetPoint("TOPLEFT", 16, -206 - (idx - 1) * 24)
+            cb:SetPoint("TOPLEFT", 16, -150 - (idx - 1) * 24)
 
             local builtInText = _G[cbName .. "Text"] or cb.Text
             if builtInText and builtInText.SetText then
@@ -1489,7 +1910,7 @@ function WT:ShowUI()
 
             local lbl = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             lbl:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-            lbl:SetWidth(480)
+            lbl:SetWidth(495)
             lbl:SetJustifyH("LEFT")
             cb.lbl = lbl
 
@@ -1506,11 +1927,79 @@ function WT:ShowUI()
             f.checkRows[idx] = { cb = cb, item = item }
         end
 
-        local rosterTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rosterTxt:SetPoint("TOPLEFT", 16, -408)
-        rosterTxt:SetWidth(510)
+        local rosterTxt = checklistPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rosterTxt:SetPoint("TOPLEFT", 16, -348)
+        rosterTxt:SetWidth(525)
         rosterTxt:SetJustifyH("LEFT")
         f.rosterTxt = rosterTxt
+
+        -- ==========================================
+        -- TAB 2 PANEL: WAVES & PHASES PROGRESS MATRIX
+        -- ==========================================
+        local matrixPanel = CreateFrame("Frame", nil, f)
+        matrixPanel:SetPoint("TOPLEFT", 14, -86)
+        matrixPanel:SetPoint("BOTTOMRIGHT", -14, 46)
+        matrixPanel:Hide()
+        f.matrixPanel = matrixPanel
+
+        -- Fixed Column Header Row
+        local colHeader = CreateFrame("Frame", nil, matrixPanel)
+        colHeader:SetPoint("TOPLEFT", 0, 0)
+        colHeader:SetPoint("TOPRIGHT", -22, 0)
+        colHeader:SetHeight(24)
+        local chBg = colHeader:CreateTexture(nil, "BACKGROUND")
+        chBg:SetAllPoints(colHeader)
+        if chBg.SetColorTexture then chBg:SetColorTexture(0.05, 0.14, 0.30, 0.95) end
+
+        local hChar = colHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        hChar:SetPoint("LEFT", colHeader, "LEFT", 10, 0)
+        hChar:SetWidth(234)
+        hChar:SetJustifyH("LEFT")
+        hChar:SetText("|cffffd100Character / Lv / Professions|r")
+
+        local phaseHeaders = { "P1: Starter", "P2: Mid-Tier", "P3: Pre-Raid", "P4: Raid/BIS" }
+        for pIdx, pLabel in ipairs(phaseHeaders) do
+            local hP = colHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            hP:SetPoint("LEFT", colHeader, "LEFT", 250 + (pIdx - 1) * 98, 0)
+            hP:SetWidth(92)
+            hP:SetJustifyH("CENTER")
+            hP:SetText("|cff00aeff" .. pLabel .. "|r")
+        end
+
+        local matrixScroll = CreateFrame("ScrollFrame", "WOWEngineWaveMatrixScroll", matrixPanel, "UIPanelScrollFrameTemplate")
+        matrixScroll:SetPoint("TOPLEFT", colHeader, "BOTTOMLEFT", 0, -4)
+        matrixScroll:SetPoint("BOTTOMRIGHT", matrixPanel, "BOTTOMRIGHT", -24, 2)
+        f.matrixScroll = matrixScroll
+
+        local matrixChild = CreateFrame("Frame", nil, matrixScroll)
+        matrixChild:SetSize(646, 380)
+        matrixScroll:SetScrollChild(matrixChild)
+        f.matrixScrollChild = matrixChild
+
+        -- Shared Footer Buttons
+        local bManage = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        bManage:SetSize(96, 24)
+        bManage:SetPoint("BOTTOMLEFT", 14, 12)
+        bManage:SetText("Manage Alts")
+        bManage:SetScript("OnClick", function()
+            WT:OpenManageAltsPopup()
+        end)
+
+        local bWizard = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        bWizard:SetSize(118, 24)
+        bWizard:SetPoint("LEFT", bManage, "RIGHT", 6, 0)
+        bWizard:SetText("Wave Setup Wizard")
+        bWizard:SetScript("OnClick", function()
+            WT:OpenWaveWizard()
+        end)
+
+        local bProcess = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        bProcess:SetSize(108, 24)
+        bProcess:SetPoint("LEFT", bWizard, "RIGHT", 6, 0)
+        bProcess:SetText("Wave Process")
+        bProcess:SetScript("OnClick", function()
+            WT:ShowWaveProcessPopup()
+        end)
 
         local doneBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         doneBtn:SetSize(90, 24)
@@ -1522,6 +2011,7 @@ function WT:ShowUI()
     end
 
     WT:RefreshUI()
+    WT:SetWaveTrackerTab(initialTab or WT.activeTab or "checklist")
     WT.frame:Show()
     WT.frame:Raise()
 end
@@ -1609,6 +2099,9 @@ function WT:RefreshUI()
     end
 
     WT.frame.rosterTxt:SetText(table.concat(lines, "\n"))
+    if WT.activeTab == "matrix" then
+        WT:RefreshWavePhaseMatrix()
+    end
 end
 
 function WT:OnLogin()

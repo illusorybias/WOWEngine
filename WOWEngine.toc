@@ -25,8 +25,10 @@ BankSorter.lua
 WaveTracker.lua
 VendorRecipeAlert.lua
 TalentAdvisor.lua
+PointNagBanner.lua
 StatCapsUI.lua
 OnboardingUI.lua
+PlanBuilder.lua
 BugReporter.lua
 SettingsPanel.lua
 UI.lua

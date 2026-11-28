@@ -159,6 +159,14 @@ function SC:BuildFrame()
     body:SetJustifyH("LEFT")
     f.body = body
 
+    local planFoot = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    planFoot:SetSize(102, 22)
+    planFoot:SetPoint("BOTTOMLEFT", 16, 10)
+    planFoot:SetText("Plan Builder")
+    planFoot:SetScript("OnClick", function()
+        if NS.PlanBuilder and NS.PlanBuilder.Show then NS.PlanBuilder:Show() end
+    end)
+
     local closeFoot = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     closeFoot:SetSize(80, 22)
     closeFoot:SetPoint("BOTTOMRIGHT", -16, 10)
@@ -178,8 +186,9 @@ function SC:Refresh()
     SC.frame.specBtn:SetText(build.label .. " (Click to Switch)")
     FitSpecButtonText(SC.frame.specBtn, 10)
     local caps = build.caps or {}
+    local planLabel = (NS.PlanBuilder and NS.PlanBuilder.GetPlanDisplayLabel) and NS.PlanBuilder:GetPlanDisplayLabel() or "PvE"
     local lines = {
-        "|cffffd100Role:|r " .. tostring(build.role or "DPS"),
+        "|cff00aeffPlan Focus:|r |cffffd100" .. planLabel .. "|r   |   |cffffd100Role:|r " .. tostring(build.role or "DPS"),
         "|cffffd100Weapon Type:|r " .. tostring(build.weapon or "Class Standard"),
         "|cffffd100Stat Priority:|r " .. tostring(build.priority or ""),
         "",
