@@ -118,22 +118,44 @@ function SC:BuildFrame()
     closeBtn:SetPoint("TOPRIGHT", -4, -4)
     closeBtn:SetScript("OnClick", function() f:Hide() end)
 
+    local specPrevBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    specPrevBtn:SetSize(24, 24)
+    specPrevBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -42)
+    specPrevBtn:SetText("<")
+    specPrevBtn:SetScript("OnClick", function()
+        if NS.TalentAdvisor and NS.TalentAdvisor.CycleBuild then
+            NS.TalentAdvisor:CycleBuild(-1)
+        end
+    end)
+    f.specPrevBtn = specPrevBtn
+
+    local specNextBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    specNextBtn:SetSize(24, 24)
+    specNextBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -42)
+    specNextBtn:SetText(">")
+    specNextBtn:SetScript("OnClick", function()
+        if NS.TalentAdvisor and NS.TalentAdvisor.CycleBuild then
+            NS.TalentAdvisor:CycleBuild(1)
+        end
+    end)
+    f.specNextBtn = specNextBtn
+
     local specBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     specBtn:SetHeight(24)
-    specBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -42)
-    specBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -42)
+    specBtn:SetPoint("LEFT", specPrevBtn, "RIGHT", 4, 0)
+    specBtn:SetPoint("RIGHT", specNextBtn, "LEFT", -4, 0)
     specBtn:SetText("")
     FitSpecButtonText(specBtn, 10)
     specBtn:SetScript("OnClick", function()
         if NS.TalentAdvisor and NS.TalentAdvisor.CycleBuild then
-            NS.TalentAdvisor:CycleBuild()
+            NS.TalentAdvisor:CycleBuild(1)
         end
     end)
     f.specBtn = specBtn
 
     local body = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    body:SetPoint("TOPLEFT", specBtn, "BOTTOMLEFT", 0, -10)
-    body:SetPoint("TOPRIGHT", specBtn, "BOTTOMRIGHT", 0, -10)
+    body:SetPoint("TOPLEFT", specPrevBtn, "BOTTOMLEFT", 0, -10)
+    body:SetPoint("TOPRIGHT", specNextBtn, "BOTTOMRIGHT", 0, -10)
     body:SetJustifyH("LEFT")
     f.body = body
 
@@ -206,15 +228,58 @@ function SC:Toggle()
     end
 end
 
+local function AnchorCharacterStatCapsDock(dock)
+    local cf = _G.CharacterFrame
+    if not dock or not cf then return end
+    dock:ClearAllPoints()
+    -- Dock cleanly above the top-right title edge of CharacterFrame (matching the Talent Tree bar style)
+    -- so it never overlaps Blizzard's Equipment Manager / Titles tabs, collapse arrow, or close button.
+    if cf.TitleContainer then
+        dock:SetPoint("BOTTOMRIGHT", cf.TitleContainer, "TOPRIGHT", -6, 4)
+    else
+        dock:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", -28, 2)
+    end
+    dock:SetFrameStrata("HIGH")
+    local cfLevel = (cf.GetFrameLevel and cf:GetFrameLevel()) or 1
+    dock:SetFrameLevel(math.max(cfLevel + 10, 50))
+end
+
 function SC:AttachCharacterButton()
-    if SC.charBtn or not _G.CharacterFrame then return end
-    local btn = CreateFrame("Button", "WOWEngineCharStatCapsBtn", _G.CharacterFrame, "UIPanelButtonTemplate")
-    btn:SetSize(84, 22)
-    btn:SetPoint("TOPRIGHT", _G.CharacterFrame, "TOPRIGHT", -34, -36)
-    btn:SetFrameStrata("HIGH")
-    btn:SetText("Stat Caps")
-    btn:SetScript("OnClick", function() SC:Toggle() end)
-    SC.charBtn = btn
+    local cf = _G.CharacterFrame
+    if not cf then return end
+
+    if not SC.charDock then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local dock = CreateFrame("Frame", "WOWEngineCharStatCapsDock", cf, template)
+        dock:SetSize(96, 26)
+        if dock.SetBackdrop then
+            pcall(function()
+                dock:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                    tile = true, tileSize = 16, edgeSize = 10,
+                    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+                })
+                dock:SetBackdropColor(0.04, 0.09, 0.19, 0.96)
+                dock:SetBackdropBorderColor(0.95, 0.78, 0.18, 1.0)
+            end)
+        end
+
+        local btn = CreateFrame("Button", "WOWEngineCharStatCapsBtn", dock, "UIPanelButtonTemplate")
+        btn:SetSize(86, 20)
+        btn:SetPoint("CENTER", dock, "CENTER", 0, 0)
+        btn:SetText("Stat Caps")
+        btn:SetScript("OnClick", function() SC:Toggle() end)
+
+        cf:HookScript("OnShow", function()
+            pcall(function() AnchorCharacterStatCapsDock(dock) end)
+        end)
+
+        SC.charDock = dock
+        SC.charBtn = btn
+    end
+
+    AnchorCharacterStatCapsDock(SC.charDock)
 end
 
 local scEvents = CreateFrame("Frame")

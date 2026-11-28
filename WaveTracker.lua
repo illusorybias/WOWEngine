@@ -8,6 +8,11 @@ WT.gatePrompt = nil
 WT.questieDock = nil
 WT.manageFrame = nil
 WT.managePage = 1
+WT.trainerPinFrame = nil
+WT.trainerPinList = {}
+WT.trainerPinSelected = 1
+WT.trainerPinPage = 1
+WT.lastTomTomUID = nil
 
 -- Cross-client Quest Completion Check
 function WT:IsQuestCompleted(questID)
@@ -216,13 +221,14 @@ function WT:GetWaveRosterStatus()
     return waveIdx, targetLevel, ready, behind
 end
 
-function WT:AdvanceWave()
+function WT:CycleWave(delta)
     local ws = NS:GetWaveState()
     local gates = ws.gates or { 20, 40, 50, 60 }
-    local nextWave = (tonumber(ws.currentWave) or 1) + 1
-    if nextWave > #gates then
-        nextWave = 1
-    end
+    local count = #gates
+    if count < 1 then return end
+    local cur = tonumber(ws.currentWave) or 1
+    local step = delta or 1
+    local nextWave = ((cur - 1 + step) % count) + 1
     ws.currentWave = nextWave
     ws.snoozedUntilByChar = {}
     NS:Print(string.format("Active leveling wave set to |cff00ff00Wave %d|r (Target Level: |cffffd100%d|r).", nextWave, gates[nextWave]))
@@ -230,13 +236,561 @@ function WT:AdvanceWave()
     WT:RefreshQuestieDock()
 end
 
-function WT:PrintTrainerLookup(query)
+function WT:AdvanceWave()
+    WT:CycleWave(1)
+end
+
+-- Structured trainer entries by faction & tier (Apprentice, Journeyman, Expert, Artisan) with Retail & Classic uiMapIDs
+local ZONE_MAP_IDS = {
+    ["Orgrimmar"]        = { retail = 85,  classic = 1454 },
+    ["Thunder Bluff"]    = { retail = 88,  classic = 1456 },
+    ["Undercity"]        = { retail = 90,  classic = 1458 },
+    ["Silvermoon City"]  = { retail = 110, classic = 1954 },
+    ["Stormwind"]        = { retail = 84,  classic = 1453 },
+    ["Ironforge"]        = { retail = 87,  classic = 1455 },
+    ["Darnassus"]        = { retail = 89,  classic = 1457 },
+    ["Exodar"]           = { retail = 103, classic = 1947 },
+    ["Swamp of Sorrows"] = { retail = 51,  classic = 1435 },
+    ["Arathi Highlands"] = { retail = 14,  classic = 1417 },
+    ["Dustwallow Marsh"] = { retail = 70,  classic = 1445 },
+    ["Stranglethorn"]    = { retail = 210, classic = 1434 },
+    ["Feralas"]          = { retail = 69,  classic = 1444 },
+    ["Tanaris"]          = { retail = 71,  classic = 1446 },
+    ["Hinterlands"]      = { retail = 26,  classic = 1425 },
+    ["Stonetalon"]       = { retail = 65,  classic = 1442 },
+}
+
+local TIER_ORDER = { Apprentice = 1, Journeyman = 2, Expert = 3, Artisan = 4 }
+local TIER_COLOR = {
+    Apprentice = "|cff00ff00",
+    Journeyman = "|cff00aeff",
+    Expert     = "|cffffd100",
+    Artisan    = "|cffff8000",
+}
+
+WT.TRAINER_PINS = {
+    Horde = {
+        Herbalism = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Jandi",             zone = "Orgrimmar",        subzone = "The Drag",           x = 55.6, y = 39.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Komin Winterhoof",  zone = "Thunder Bluff",    subzone = "High Rise",          x = 49.8, y = 39.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Martha Alliestar",  zone = "Undercity",        subzone = "Apothecarium",       x = 54.4, y = 49.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Ruak Stronghorn",   zone = "Swamp of Sorrows", subzone = "Stonard",            x = 48.4, y = 55.8 },
+        },
+        Alchemy = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Yelmak",                zone = "Orgrimmar",        subzone = "The Drag",      x = 56.6, y = 33.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Bena Winterhoof",       zone = "Thunder Bluff",    subzone = "Middle Rise",   x = 46.8, y = 33.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Doctor Herbert Halsey", zone = "Undercity",        subzone = "Apothecarium",  x = 47.6, y = 73.2 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Rogvar",                zone = "Swamp of Sorrows", subzone = "Stonard",       x = 48.4, y = 55.8 },
+        },
+        Enchanting = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Godan",          zone = "Orgrimmar",     subzone = "The Drag",       x = 53.8, y = 38.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Lavinia Crowe",  zone = "Undercity",     subzone = "Magic Quarter",  x = 61.8, y = 61.2 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Hgarth",         zone = "Stonetalon",    subzone = "Sun Rock",       x = 49.2, y = 57.2 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Godan",          zone = "Orgrimmar",     subzone = "The Drag",       x = 53.8, y = 38.2 },
+        },
+        Mining = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Makaru",         zone = "Orgrimmar",     subzone = "Valley of Honor", x = 73.0, y = 26.8 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Brek Stonehoof", zone = "Thunder Bluff", subzone = "Lower Rise",      x = 34.6, y = 57.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Brom Killian",   zone = "Undercity",     subzone = "War Quarter",     x = 56.0, y = 37.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Pikkle",         zone = "Tanaris",       subzone = "Gadgetzan",       x = 51.0, y = 28.0 },
+        },
+        Blacksmithing = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Saru Steelfury", zone = "Orgrimmar",     subzone = "Valley of Honor", x = 81.2, y = 22.8 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Karn Stonehoof", zone = "Thunder Bluff", subzone = "Lower Rise",      x = 39.4, y = 55.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Saru Steelfury", zone = "Orgrimmar",     subzone = "Valley of Honor", x = 81.2, y = 22.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Brikk Keencraft",zone = "Stranglethorn", subzone = "Booty Bay",       x = 29.0, y = 75.4 },
+        },
+        Engineering = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Roxxik",           zone = "Orgrimmar",     subzone = "Valley of Honor",  x = 75.8, y = 25.0 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Graham Van Talen", zone = "Undercity",     subzone = "Rogues' Quarter",  x = 76.0, y = 73.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Roxxik",           zone = "Orgrimmar",     subzone = "Valley of Honor",  x = 75.8, y = 25.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Buzzek Bracketswing", zone = "Tanaris",    subzone = "Gadgetzan",        x = 52.2, y = 27.6 },
+        },
+        Leatherworking = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Karolek",         zone = "Orgrimmar",     subzone = "The Drag",      x = 63.2, y = 44.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Una",             zone = "Thunder Bluff", subzone = "Middle Rise",   x = 41.8, y = 42.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Una",             zone = "Thunder Bluff", subzone = "Middle Rise",   x = 41.8, y = 42.6 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Hahrana Ironhide",zone = "Feralas",       subzone = "Camp Mojache",  x = 74.4, y = 43.0 },
+        },
+        Skinning = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Thuwd",          zone = "Orgrimmar",     subzone = "The Drag",      x = 63.2, y = 45.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Mooranta",       zone = "Thunder Bluff", subzone = "Middle Rise",   x = 44.4, y = 43.2 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Killian Hagey",  zone = "Undercity",     subzone = "Trade Quarter", x = 70.8, y = 58.6 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Thuwd",          zone = "Orgrimmar",     subzone = "The Drag",      x = 63.2, y = 45.2 },
+        },
+        Tailoring = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Magar",           zone = "Orgrimmar",     subzone = "The Drag",      x = 63.4, y = 50.0 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Josef Gregorian", zone = "Undercity",     subzone = "Magic Quarter", x = 70.6, y = 30.2 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Josef Gregorian", zone = "Undercity",     subzone = "Magic Quarter", x = 70.6, y = 30.2 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Daryl Stack",     zone = "Undercity",     subzone = "Magic Quarter", x = 70.4, y = 29.8 },
+        },
+        Jewelcrafting = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Kalinda",          zone = "Silvermoon City", subzone = "Bazaar",       x = 90.4, y = 73.8 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Orgrimmar Trainer",zone = "Orgrimmar",       subzone = "The Drag",     x = 72.2, y = 34.4 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Kalinda",          zone = "Silvermoon City", subzone = "Bazaar",       x = 90.4, y = 73.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Kalinda",          zone = "Silvermoon City", subzone = "Bazaar",       x = 90.4, y = 73.8 },
+        },
+        Cooking = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Zamja",          zone = "Orgrimmar",     subzone = "The Drag",      x = 57.4, y = 53.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Aska Mistrunner",zone = "Thunder Bluff", subzone = "Middle Rise",   x = 51.0, y = 52.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Eunice Burch",   zone = "Undercity",     subzone = "Trade Quarter", x = 62.2, y = 44.6 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Dirge Quikcleave",zone = "Tanaris",      subzone = "Gadgetzan",     x = 52.6, y = 28.0 },
+        },
+        Fishing = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Lumak",          zone = "Orgrimmar",     subzone = "Valley of Honor", x = 69.8, y = 29.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Kah Mistrunner", zone = "Thunder Bluff", subzone = "Lower Rise",      x = 55.8, y = 46.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Old Man Heming", zone = "Stranglethorn", subzone = "Booty Bay",       x = 27.4, y = 77.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Nat Pagle",      zone = "Dustwallow Marsh", subzone = "Tidefury Cove", x = 58.6, y = 60.2 },
+        },
+        ["First Aid"] = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Arnok",                 zone = "Orgrimmar",        subzone = "Valley of Spirits", x = 34.2, y = 84.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Mary Edras",            zone = "Undercity",        subzone = "Rogues' Quarter",   x = 73.4, y = 55.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Balai Lok'Wein",        zone = "Dustwallow Marsh", subzone = "Brackenwall",       x = 36.4, y = 30.4 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Doctor Gregory Victor", zone = "Arathi Highlands", subzone = "Hammerfall",        x = 73.4, y = 36.8 },
+        },
+    },
+    Alliance = {
+        Herbalism = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Tannysa",          zone = "Stormwind",  subzone = "Mage Quarter",    x = 44.6, y = 77.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Reyna Stonebranch",zone = "Ironforge",  subzone = "Mystic Ward",     x = 55.6, y = 58.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Firodren Mooncaller", zone = "Darnassus", subzone = "Craftsmen's Terrace", x = 48.0, y = 68.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Tannysa",          zone = "Stormwind",  subzone = "Mage Quarter",    x = 44.6, y = 77.6 },
+        },
+        Alchemy = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Lilyssia Nightbreeze", zone = "Stormwind",  subzone = "Mage Quarter", x = 46.6, y = 79.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Tally Berryfizz",      zone = "Ironforge",  subzone = "Tinker Town",  x = 66.6, y = 55.2 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Ainethil",             zone = "Darnassus",  subzone = "Craftsmen's Terrace", x = 55.0, y = 24.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Kylanna Windwhisper",  zone = "Feralas",    subzone = "Feathermoon",  x = 32.6, y = 43.8 },
+        },
+        Enchanting = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Lucan Cordell",      zone = "Stormwind", subzone = "Mage Quarter",      x = 43.2, y = 64.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Gimble Thistlefuzz", zone = "Ironforge", subzone = "Hall of Explorers", x = 60.0, y = 45.4 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Taladan",            zone = "Darnassus", subzone = "Craftsmen's Terrace", x = 59.0, y = 13.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Lucan Cordell",      zone = "Stormwind", subzone = "Mage Quarter",      x = 43.2, y = 64.2 },
+        },
+        Mining = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Gelman Stonehand",   zone = "Stormwind", subzone = "Dwarven District", x = 51.2, y = 17.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Geofram Bouldertoe", zone = "Ironforge", subzone = "Great Forge",      x = 50.4, y = 26.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Geofram Bouldertoe", zone = "Ironforge", subzone = "Great Forge",      x = 50.4, y = 26.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Pikkle",             zone = "Tanaris",   subzone = "Gadgetzan",        x = 51.0, y = 28.0 },
+        },
+        Blacksmithing = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Therum Deepforge", zone = "Stormwind",     subzone = "Dwarven District", x = 56.2, y = 17.0 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Bengus Deepforge", zone = "Ironforge",     subzone = "Great Forge",      x = 52.4, y = 41.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Bengus Deepforge", zone = "Ironforge",     subzone = "Great Forge",      x = 52.4, y = 41.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Brikk Keencraft",  zone = "Stranglethorn", subzone = "Booty Bay",        x = 29.0, y = 75.4 },
+        },
+        Engineering = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Lilliam Sparkspindle",   zone = "Stormwind", subzone = "Dwarven District", x = 55.2, y = 8.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Springspindle Fizzlegear",zone = "Ironforge", subzone = "Tinker Town",     x = 67.8, y = 42.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Springspindle Fizzlegear",zone = "Ironforge", subzone = "Tinker Town",     x = 67.8, y = 42.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Buzzek Bracketswing",    zone = "Tanaris",   subzone = "Gadgetzan",        x = 52.2, y = 27.6 },
+        },
+        Leatherworking = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Simon Tanner",      zone = "Stormwind", subzone = "Old Town",         x = 67.4, y = 49.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Fimble Finespindle",zone = "Ironforge", subzone = "Great Forge",      x = 40.4, y = 33.4 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Telonis",           zone = "Darnassus", subzone = "Craftsmen's Terrace", x = 64.4, y = 21.6 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Drakk Stonehand",   zone = "Hinterlands", subzone = "Aerie Peak",     x = 13.4, y = 43.4 },
+        },
+        Skinning = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Maris Granger",      zone = "Stormwind", subzone = "Old Town",        x = 67.6, y = 49.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Balthus Stoneflayer",zone = "Ironforge", subzone = "Great Forge",     x = 40.0, y = 32.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Eladriel",           zone = "Darnassus", subzone = "Craftsmen's Terrace", x = 64.4, y = 23.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Maris Granger",      zone = "Stormwind", subzone = "Old Town",        x = 67.6, y = 49.2 },
+        },
+        Tailoring = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Georgio Bolero",    zone = "Stormwind",        subzone = "Mage Quarter", x = 43.4, y = 73.6 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Jormund Stonebrow", zone = "Ironforge",        subzone = "Great Forge",  x = 43.8, y = 29.2 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Georgio Bolero",    zone = "Stormwind",        subzone = "Mage Quarter", x = 43.4, y = 73.6 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Timothy Worthington", zone = "Dustwallow Marsh", subzone = "Theramore",  x = 66.2, y = 51.6 },
+        },
+        Jewelcrafting = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Farii",             zone = "Exodar",    subzone = "Trader's Tier", x = 45.0, y = 24.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Stormwind Trainer", zone = "Stormwind", subzone = "Trade District",x = 63.4, y = 61.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Farii",             zone = "Exodar",    subzone = "Trader's Tier", x = 45.0, y = 24.4 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Farii",             zone = "Exodar",    subzone = "Trader's Tier", x = 45.0, y = 24.4 },
+        },
+        Cooking = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Stephen Ryback",  zone = "Stormwind", subzone = "Old Town",       x = 77.6, y = 53.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Daryl Riknussun", zone = "Ironforge", subzone = "Great Forge",    x = 60.0, y = 36.8 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Alegorn",         zone = "Darnassus", subzone = "Craftsmen's Terrace", x = 49.2, y = 21.2 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Dirge Quikcleave",zone = "Tanaris",   subzone = "Gadgetzan",      x = 52.6, y = 28.0 },
+        },
+        Fishing = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Arnold Leland",      zone = "Stormwind",        subzone = "Canals",         x = 45.8, y = 58.4 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Grimnur Stonebrand", zone = "Ironforge",        subzone = "Forlorn Cavern", x = 48.0, y = 6.4 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Old Man Heming",     zone = "Stranglethorn",    subzone = "Booty Bay",      x = 27.4, y = 77.0 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Nat Pagle",          zone = "Dustwallow Marsh", subzone = "Tidefury Cove",  x = 58.6, y = 60.2 },
+        },
+        ["First Aid"] = {
+            { tier = "Apprentice", minSkill = 0,   maxSkill = 75,  npc = "Shaina Fuller",          zone = "Stormwind",        subzone = "Cathedral Square", x = 43.2, y = 26.2 },
+            { tier = "Journeyman", minSkill = 50,  maxSkill = 150, npc = "Nissa Firestone",        zone = "Ironforge",        subzone = "Great Forge",      x = 54.8, y = 58.6 },
+            { tier = "Expert",     minSkill = 125, maxSkill = 225, npc = "Deneb Walker",           zone = "Arathi Highlands", subzone = "Stromgarde",       x = 27.0, y = 58.8 },
+            { tier = "Artisan",    minSkill = 200, maxSkill = 300, npc = "Doctor Gustaf VanHowzen",zone = "Dustwallow Marsh", subzone = "Theramore",        x = 67.8, y = 49.0 },
+        },
+    },
+}
+
+local function ResolveTrainerMapID(zoneName)
+    local zIds = ZONE_MAP_IDS[zoneName]
+    if C_Map and C_Map.GetMapInfo and zIds then
+        local wantLow = string.lower(zoneName or "")
+        for _, candidateID in ipairs({ zIds.retail, zIds.classic }) do
+            if candidateID then
+                local ok, info = pcall(C_Map.GetMapInfo, candidateID)
+                if ok and type(info) == "table" and info.name then
+                    if string.find(string.lower(info.name), wantLow, 1, true) then
+                        return candidateID
+                    end
+                end
+            end
+        end
+        return zIds.retail or zIds.classic
+    end
+    return zIds and (zIds.retail or zIds.classic) or nil
+end
+
+local function GetPlayerMapPositionSafe()
+    if not (C_Map and C_Map.GetBestMapForUnit) then return nil, nil, nil end
+    local okM, mapID = pcall(C_Map.GetBestMapForUnit, "player")
+    if not okM or not mapID then return nil, nil, nil end
+    local px, py = nil, nil
+    if C_Map.GetPlayerMapPosition then
+        local okP, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
+        if okP and pos and pos.GetXY then
+            local x, y = pos:GetXY()
+            if x and y then px, py = x * 100, y * 100 end
+        end
+    end
+    return mapID, px, py
+end
+
+function WT:PlaceTrainerMapPin(entry)
+    if not entry then return false end
+    local mapID = ResolveTrainerMapID(entry.zone)
+    local label = string.format("%s (%s %s) - %s", entry.npc or "Trainer", entry.tier or "", entry.profession or "", entry.subzone or entry.zone or "")
+    local pinnedNative = false
+    local pinnedTomTom = false
+
+    -- 1. Native Blizzard Map Waypoint (C_Map.SetUserWaypoint + C_SuperTrack.SetSuperTrackedUserWaypoint)
+    if mapID and C_Map and C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates then
+        local ok = pcall(function()
+            if C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
+            local pt = UiMapPoint.CreateFromCoordinates(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100)
+            C_Map.SetUserWaypoint(pt)
+            if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
+                C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+            end
+        end)
+        if ok then pinnedNative = true end
+    end
+
+    -- 2. TomTom fallback (when native waypoint isn't available or TomTom is installed)
+    if (not pinnedNative) or _G.TomTom then
+        local TT = _G.TomTom
+        if TT and type(TT.AddWaypoint) == "function" and mapID then
+            pcall(function()
+                if WT.lastTomTomUID and type(TT.RemoveWaypoint) == "function" then
+                    TT:RemoveWaypoint(WT.lastTomTomUID)
+                end
+                WT.lastTomTomUID = TT:AddWaypoint(mapID, (entry.x or 50) / 100, (entry.y or 50) / 100, {
+                    title = label,
+                    persistent = false,
+                    minimap = true,
+                    world = true,
+                })
+                pinnedTomTom = true
+            end)
+        elseif not pinnedNative and SlashCmdList and type(SlashCmdList["TOMTOM_WAY"]) == "function" then
+            pcall(function()
+                SlashCmdList["TOMTOM_WAY"](string.format("%s %.1f %.1f %s", entry.zone or "", entry.x or 50, entry.y or 50, label))
+                pinnedTomTom = true
+            end)
+        end
+    end
+
+    if pinnedNative or pinnedTomTom then
+        local via = pinnedNative and (pinnedTomTom and "Map Pin + TomTom" or "Map Pin") or "TomTom"
+        NS:Print(string.format("|cff00ff00Placed %s:|r %s[%s]|r |cffffd100%s|r — %s (%s %.1f, %.1f)",
+            via, TIER_COLOR[entry.tier] or "|cffffd100", entry.tier or "Trainer",
+            entry.profession or "", entry.npc or "Trainer", entry.zone or "", entry.x or 0, entry.y or 0))
+        return true
+    end
+
+    NS:Print(string.format("|cffffd100Trainer Coordinates:|r [%s] %s — %s (%s %.1f, %.1f) (Native waypoints & TomTom unavailable on this client)",
+        entry.tier or "Trainer", entry.profession or "", entry.npc or "Trainer", entry.zone or "", entry.x or 0, entry.y or 0))
+    return false
+end
+
+function WT:BuildTrainerPinList(query)
+    local _, faction = NS:GetContextKeys()
+    local catalog = WT.TRAINER_PINS[faction] or WT.TRAINER_PINS.Horde
+    local q = string.lower(C.Trim(query or ""))
+
+    local playerProfs = C.GetPlayerProfessions()
+    local playerSubs = C.GetPlayerSubProfessions and C.GetPlayerSubProfessions() or {}
+    local allKnown = {}
+    for k, v in pairs(playerProfs) do allKnown[k] = tonumber(v) or 1 end
+    for k, v in pairs(playerSubs) do allKnown[k] = tonumber(v) or 1 end
+
+    local wantedProfs = {}
+    if q == "" then
+        for pName in pairs(allKnown) do
+            if catalog[pName] then wantedProfs[pName] = true end
+        end
+        if next(wantedProfs) == nil then
+            for pName in pairs(catalog) do wantedProfs[pName] = true end
+        end
+    elseif q == "all" then
+        for pName in pairs(catalog) do wantedProfs[pName] = true end
+    else
+        for pName in pairs(catalog) do
+            if string.find(string.lower(pName), q, 1, true) then
+                wantedProfs[pName] = true
+            end
+        end
+    end
+
+    local pMapID, px, py = GetPlayerMapPositionSafe()
+    local results = {}
+
+    for pName in pairs(wantedProfs) do
+        local list = catalog[pName]
+        local skillRank = allKnown[pName] or 0
+        if type(list) == "table" then
+            for _, t in ipairs(list) do
+                local mapID = ResolveTrainerMapID(t.zone)
+                local sameZone = (pMapID ~= nil and mapID ~= nil and pMapID == mapID)
+                local dist = nil
+                if sameZone and px and py and t.x and t.y then
+                    local dx = t.x - px
+                    local dy = t.y - py
+                    dist = math.sqrt(dx * dx + dy * dy)
+                end
+                local tierMatches = (skillRank >= (t.minSkill or 0) and skillRank < (t.maxSkill or 300))
+                table.insert(results, {
+                    profession = pName,
+                    tier = t.tier,
+                    minSkill = t.minSkill,
+                    maxSkill = t.maxSkill,
+                    npc = t.npc,
+                    zone = t.zone,
+                    subzone = t.subzone,
+                    x = t.x,
+                    y = t.y,
+                    mapID = mapID,
+                    sameZone = sameZone,
+                    dist = dist,
+                    tierMatches = tierMatches,
+                    skillRank = skillRank,
+                })
+            end
+        end
+    end
+
+    -- Sort closest available trainers first (same zone by distance -> matching skill tier -> tier order -> profession)
+    table.sort(results, function(a, b)
+        if a.sameZone ~= b.sameZone then return a.sameZone end
+        if a.sameZone and b.sameZone and a.dist and b.dist and math.abs(a.dist - b.dist) > 0.1 then
+            return a.dist < b.dist
+        end
+        if a.tierMatches ~= b.tierMatches then return a.tierMatches end
+        local ta = TIER_ORDER[a.tier] or 9
+        local tb = TIER_ORDER[b.tier] or 9
+        if ta ~= tb then return ta < tb end
+        if a.profession ~= b.profession then return a.profession < b.profession end
+        return (a.zone or "") < (b.zone or "")
+    end)
+
+    return results
+end
+
+function WT:RefreshTrainerPinPopup()
+    local tf = WT.trainerPinFrame
+    if not tf then return end
+    local list = WT.trainerPinList or {}
+    local perPage = 8
+    local totalPages = math.max(1, math.ceil(#list / perPage))
+    if WT.trainerPinPage < 1 then WT.trainerPinPage = 1 end
+    if WT.trainerPinPage > totalPages then WT.trainerPinPage = totalPages end
+    if WT.trainerPinSelected < 1 or WT.trainerPinSelected > #list then
+        WT.trainerPinSelected = (#list > 0) and 1 or 0
+    end
+
+    local startIdx = (WT.trainerPinPage - 1) * perPage + 1
+    for i = 1, perPage do
+        local row = tf.rows[i]
+        local idx = startIdx + i - 1
+        local entry = list[idx]
+        if entry then
+            local selected = (idx == WT.trainerPinSelected)
+            row.entryIndex = idx
+            row.radioTxt:SetText(selected and "|cffffd100(O)|r" or "|cff777777( )|r")
+            local distTag = entry.sameZone and " |cff00ff00[Here]|r" or ""
+            local tierCol = TIER_COLOR[entry.tier] or "|cffffd100"
+            row.labelTxt:SetText(string.format("%s[%s]|r |cffffd100%s|r — %s (%s %.1f, %.1f)%s",
+                tierCol, entry.tier or "Tier", entry.profession or "", entry.npc or "Trainer",
+                entry.zone or "", entry.x or 0, entry.y or 0, distTag))
+            if selected then
+                row.bg:SetColorTexture(0.14, 0.30, 0.56, 0.85)
+            else
+                row.bg:SetColorTexture(0.06, 0.14, 0.28, (i % 2 == 0) and 0.45 or 0.25)
+            end
+            row:Show()
+        else
+            row.entryIndex = nil
+            row:Hide()
+        end
+    end
+
+    tf.pageTxt:SetText(string.format("Page %d/%d (%d trainers)", WT.trainerPinPage, totalPages, #list))
+    if WT.trainerPinPage > 1 then tf.prevBtn:Enable() else tf.prevBtn:Disable() end
+    if WT.trainerPinPage < totalPages then tf.nextBtn:Enable() else tf.nextBtn:Disable() end
+    if WT.trainerPinSelected > 0 and list[WT.trainerPinSelected] then
+        tf.pinBtn:Enable()
+    else
+        tf.pinBtn:Disable()
+    end
+end
+
+function WT:OpenTrainerPinPopup(query)
+    if not WT.trainerPinFrame then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local tf = CreateFrame("Frame", "WOWEngineTrainerPinFrame", UIParent, template)
+        tf:SetSize(510, 340)
+        tf:SetPoint("CENTER", UIParent, "CENTER", 0, 25)
+        tf:SetFrameStrata("DIALOG")
+        tf:SetFrameLevel(155)
+        tf:SetClampedToScreen(true)
+        tf:SetMovable(true)
+        tf:EnableMouse(true)
+        tf:RegisterForDrag("LeftButton")
+        tf:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        tf:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        ApplyBlueGoldBackdrop(tf, 0.98)
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineTrainerPinFrame")
+        end
+
+        local headerBg = tf:CreateTexture(nil, "ARTWORK")
+        headerBg:SetPoint("TOPLEFT", 4, -4)
+        headerBg:SetPoint("TOPRIGHT", -4, -4)
+        headerBg:SetHeight(42)
+        headerBg:SetColorTexture(0.06, 0.16, 0.34, 0.95)
+
+        local title = tf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 14, -10)
+        title:SetText("|cff00aeffWOWEngine|r |cffffd100Trainer Map Pin Selector|r")
+
+        local sub = tf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+        sub:SetText("Choose ONE closest trainer by tier below, then click |cffffd100Place Map Pin|r.")
+        tf.sub = sub
+
+        local closeBtn = CreateFrame("Button", nil, tf, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        closeBtn:SetScript("OnClick", function() tf:Hide() end)
+
+        tf.rows = {}
+        for i = 1, 8 do
+            local rowY = -56 - (i - 1) * 28
+            local row = CreateFrame("Button", nil, tf)
+            row:SetPoint("TOPLEFT", 12, rowY)
+            row:SetPoint("TOPRIGHT", -12, rowY)
+            row:SetHeight(24)
+
+            local bg = row:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints(row)
+            bg:SetColorTexture(0.06, 0.14, 0.28, 0.35)
+            row.bg = bg
+
+            local radioTxt = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            radioTxt:SetPoint("LEFT", row, "LEFT", 6, 0)
+            radioTxt:SetWidth(26)
+            radioTxt:SetJustifyH("CENTER")
+            row.radioTxt = radioTxt
+
+            local labelTxt = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            labelTxt:SetPoint("LEFT", radioTxt, "RIGHT", 4, 0)
+            labelTxt:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+            labelTxt:SetJustifyH("LEFT")
+            if labelTxt.SetWordWrap then labelTxt:SetWordWrap(false) end
+            row.labelTxt = labelTxt
+
+            row:SetScript("OnClick", function(self)
+                if self.entryIndex then
+                    WT.trainerPinSelected = self.entryIndex
+                    WT:RefreshTrainerPinPopup()
+                end
+            end)
+
+            tf.rows[i] = row
+        end
+
+        local prevBtn = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        prevBtn:SetSize(28, 22)
+        prevBtn:SetPoint("BOTTOMLEFT", 14, 14)
+        prevBtn:SetText("<")
+        prevBtn:SetScript("OnClick", function()
+            WT.trainerPinPage = WT.trainerPinPage - 1
+            WT:RefreshTrainerPinPopup()
+        end)
+        tf.prevBtn = prevBtn
+
+        local pageTxt = tf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        pageTxt:SetPoint("LEFT", prevBtn, "RIGHT", 8, 0)
+        pageTxt:SetWidth(145)
+        pageTxt:SetJustifyH("CENTER")
+        tf.pageTxt = pageTxt
+
+        local nextBtn = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        nextBtn:SetSize(28, 22)
+        nextBtn:SetPoint("LEFT", pageTxt, "RIGHT", 8, 0)
+        nextBtn:SetText(">")
+        nextBtn:SetScript("OnClick", function()
+            WT.trainerPinPage = WT.trainerPinPage + 1
+            WT:RefreshTrainerPinPopup()
+        end)
+        tf.nextBtn = nextBtn
+
+        local closeFoot = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        closeFoot:SetSize(72, 24)
+        closeFoot:SetPoint("BOTTOMRIGHT", -14, 14)
+        closeFoot:SetText("Close")
+        closeFoot:SetScript("OnClick", function() tf:Hide() end)
+
+        local pinBtn = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+        pinBtn:SetSize(126, 24)
+        pinBtn:SetPoint("RIGHT", closeFoot, "LEFT", -8, 0)
+        pinBtn:SetText("Place Map Pin")
+        pinBtn:SetScript("OnClick", function()
+            local sel = WT.trainerPinList and WT.trainerPinList[WT.trainerPinSelected]
+            if sel then
+                WT:PlaceTrainerMapPin(sel)
+            end
+        end)
+        tf.pinBtn = pinBtn
+
+        WT.trainerPinFrame = tf
+    end
+
+    WT.trainerPinList = WT:BuildTrainerPinList(query)
+    WT.trainerPinPage = 1
+    WT.trainerPinSelected = (#WT.trainerPinList > 0) and 1 or 0
+    WT:RefreshTrainerPinPopup()
+    WT.trainerPinFrame:Show()
+    WT.trainerPinFrame:Raise()
+end
+
+function WT:PrintTrainerLookup(query, suppressPopup)
     local _, faction = NS:GetContextKeys()
     local tableForFaction = WT.TRAINERS[faction] or WT.TRAINERS.Horde
     local q = string.lower(C.Trim(query or ""))
 
     if q == "" then
         local profs = C.GetPlayerProfessions()
+        local subs = C.GetPlayerSubProfessions and C.GetPlayerSubProfessions() or {}
         NS:Print("=== " .. faction .. " Profession Trainer Coordinates ===")
         local printed = false
         for pName in pairs(profs) do
@@ -245,8 +799,17 @@ function WT:PrintTrainerLookup(query)
                 NS:Print("  |cffffd100" .. pName .. ":|r " .. tableForFaction[pName])
             end
         end
+        for sName in pairs(subs) do
+            if tableForFaction[sName] then
+                printed = true
+                NS:Print("  |cffffd100" .. sName .. ":|r " .. tableForFaction[sName])
+            end
+        end
         if not printed then
-            NS:Print("  No primary professions detected yet. Type |cffffd100/he trainer <profession>|r (e.g. /he trainer herb, /he trainer ench, /he trainer all).")
+            NS:Print("  No professions detected yet. Showing all " .. faction .. " trainers in Map Pin Selector (or use /he trainer <profession>).")
+        end
+        if not suppressPopup then
+            WT:OpenTrainerPinPopup("")
         end
         return
     end
@@ -255,6 +818,9 @@ function WT:PrintTrainerLookup(query)
         NS:Print("=== All " .. faction .. " Capital Trainer Coordinates ===")
         for pName, loc in pairs(tableForFaction) do
             NS:Print("  |cffffd100" .. pName .. ":|r " .. loc)
+        end
+        if not suppressPopup then
+            WT:OpenTrainerPinPopup("all")
         end
         return
     end
@@ -268,6 +834,8 @@ function WT:PrintTrainerLookup(query)
     end
     if hits == 0 then
         NS:Print("No trainer match for '" .. q .. "'. Try: herb, alch, ench, min, bs, eng, lw, skin, tail, jc, cook, fish, first aid, or all.")
+    elseif not suppressPopup then
+        WT:OpenTrainerPinPopup(q)
     end
 end
 
@@ -691,26 +1259,38 @@ function WT:ShowUI()
         statusTxt:SetJustifyH("LEFT")
         f.statusTxt = statusTxt
 
+        local bPrevWave = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        bPrevWave:SetSize(22, 24)
+        bPrevWave:SetPoint("TOPLEFT", 16, -104)
+        bPrevWave:SetText("<")
+        bPrevWave:SetScript("OnClick", function() WT:CycleWave(-1) end)
+
         local bAdvance = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bAdvance:SetSize(130, 24)
-        bAdvance:SetPoint("TOPLEFT", 16, -104)
-        bAdvance:SetText("Advance Wave >")
-        bAdvance:SetScript("OnClick", function() WT:AdvanceWave() end)
+        bAdvance:SetSize(88, 24)
+        bAdvance:SetPoint("LEFT", bPrevWave, "RIGHT", 2, 0)
+        bAdvance:SetText("Switch Wave")
+        bAdvance:SetScript("OnClick", function() WT:CycleWave(1) end)
+
+        local bNextWave = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        bNextWave:SetSize(22, 24)
+        bNextWave:SetPoint("LEFT", bAdvance, "RIGHT", 2, 0)
+        bNextWave:SetText(">")
+        bNextWave:SetScript("OnClick", function() WT:CycleWave(1) end)
 
         local bTestGate = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bTestGate:SetSize(130, 24)
-        bTestGate:SetPoint("LEFT", bAdvance, "RIGHT", 8, 0)
+        bTestGate:SetSize(124, 24)
+        bTestGate:SetPoint("LEFT", bNextWave, "RIGHT", 6, 0)
         bTestGate:SetText("Test Gate Prompt")
         bTestGate:SetScript("OnClick", function() WT:ShowGatePrompt(true) end)
 
         local bTrainers = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bTrainers:SetSize(135, 24)
-        bTrainers:SetPoint("LEFT", bTestGate, "RIGHT", 8, 0)
+        bTrainers:SetSize(130, 24)
+        bTrainers:SetPoint("LEFT", bTestGate, "RIGHT", 6, 0)
         bTrainers:SetText("My Prof Trainers")
         bTrainers:SetScript("OnClick", function() WT:PrintTrainerLookup("") end)
 
         local bSnooze = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        bSnooze:SetSize(78, 24)
+        bSnooze:SetSize(74, 24)
         bSnooze:SetPoint("LEFT", bTrainers, "RIGHT", 6, 0)
         bSnooze:SetText("Snooze")
         bSnooze:SetScript("OnClick", function()
@@ -1221,22 +1801,37 @@ function WT:OpenWaveWizard()
             local rowY = -166 - (i - 1) * 22
             local nameTxt = wf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             nameTxt:SetPoint("TOPLEFT", 16, rowY - 4)
-            nameTxt:SetWidth(330)
+            nameTxt:SetWidth(315)
             nameTxt:SetJustifyH("LEFT")
 
-            local wBtn = CreateFrame("Button", nil, wf, "UIPanelButtonTemplate")
-            wBtn:SetSize(92, 20)
-            wBtn:SetPoint("TOPRIGHT", -14, rowY)
-            wBtn:SetScript("OnClick", function(self)
-                if not self.cKey then return end
+            local function StepRowWave(cKey, delta)
+                if not cKey then return end
                 local ws = NS:GetWaveState()
                 ws.waveAssignments = ws.waveAssignments or {}
-                local cur = tonumber(ws.waveAssignments[self.cKey]) or 1
-                ws.waveAssignments[self.cKey] = (cur % 3) + 1
+                local cur = tonumber(ws.waveAssignments[cKey]) or 1
+                ws.waveAssignments[cKey] = ((cur - 1 + (delta or 1)) % 3) + 1
                 WT:RefreshWaveWizard()
                 WT:RefreshUI()
-            end)
-            wf.altRows[i] = { nameTxt = nameTxt, wBtn = wBtn }
+            end
+
+            local wNextBtn = CreateFrame("Button", nil, wf, "UIPanelButtonTemplate")
+            wNextBtn:SetSize(20, 20)
+            wNextBtn:SetPoint("TOPRIGHT", -14, rowY)
+            wNextBtn:SetText(">")
+            wNextBtn:SetScript("OnClick", function(self) StepRowWave(self.cKey, 1) end)
+
+            local wBtn = CreateFrame("Button", nil, wf, "UIPanelButtonTemplate")
+            wBtn:SetSize(64, 20)
+            wBtn:SetPoint("RIGHT", wNextBtn, "LEFT", -2, 0)
+            wBtn:SetScript("OnClick", function(self) StepRowWave(self.cKey, 1) end)
+
+            local wPrevBtn = CreateFrame("Button", nil, wf, "UIPanelButtonTemplate")
+            wPrevBtn:SetSize(20, 20)
+            wPrevBtn:SetPoint("RIGHT", wBtn, "LEFT", -2, 0)
+            wPrevBtn:SetText("<")
+            wPrevBtn:SetScript("OnClick", function(self) StepRowWave(self.cKey, -1) end)
+
+            wf.altRows[i] = { nameTxt = nameTxt, wBtn = wBtn, wPrevBtn = wPrevBtn, wNextBtn = wNextBtn }
         end
 
         local bProcess = CreateFrame("Button", nil, wf, "UIPanelButtonTemplate")
@@ -1289,12 +1884,18 @@ function WT:RefreshWaveWizard()
             local wNum = (ws.waveAssignments and ws.waveAssignments[cKey]) or 1
             row.nameTxt:SetText(string.format("|cffffd100%s|r (Lv%d %s)", info.name, tonumber(info.level) or 0, info.class or "?"))
             row.wBtn.cKey = cKey
+            row.wPrevBtn.cKey = cKey
+            row.wNextBtn.cKey = cKey
             row.wBtn:SetText("Wave " .. tostring(wNum))
             row.nameTxt:Show()
             row.wBtn:Show()
+            row.wPrevBtn:Show()
+            row.wNextBtn:Show()
         else
             row.nameTxt:Hide()
             row.wBtn:Hide()
+            row.wPrevBtn:Hide()
+            row.wNextBtn:Hide()
         end
     end
 end

@@ -397,6 +397,7 @@ function R:ScanAltoholic()
                     totalBagSlots = ch.totalBagSlots or 0,
                     regularBagSlots = ch.regularBagSlots or 0,
                     professions = ch.professions or {},
+                    subProfessions = ch.subProfessions or {},
                 }
                 imported = imported + 1
             else
@@ -412,8 +413,16 @@ function R:ScanAltoholic()
                 if ch.professions and next(ch.professions) ~= nil then
                     entry.professions = entry.professions or {}
                     for pName, pRank in pairs(ch.professions) do
-                        if not entry.professions[pName] then
+                        if not entry.professions[pName] or (tonumber(pRank) or 0) > (tonumber(entry.professions[pName]) or 0) then
                             entry.professions[pName] = pRank
+                        end
+                    end
+                end
+                if ch.subProfessions and next(ch.subProfessions) ~= nil then
+                    entry.subProfessions = entry.subProfessions or {}
+                    for sName, sRank in pairs(ch.subProfessions) do
+                        if not entry.subProfessions[sName] or (tonumber(sRank) or 0) > (tonumber(entry.subProfessions[sName]) or 0) then
+                            entry.subProfessions[sName] = sRank
                         end
                     end
                 end

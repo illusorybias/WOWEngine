@@ -330,6 +330,28 @@ local function EnsureMailButtons()
         btn:SetPoint("BOTTOMRIGHT", SendMailFrame, "BOTTOMRIGHT", -10, -28)
     end
 
+    local prevAltBtn = _G.WOWEngineMailPrevAltButton
+    if not prevAltBtn then
+        prevAltBtn = CreateFrame("Button", "WOWEngineMailPrevAltButton", SendMailFrame, "UIPanelButtonTemplate")
+        prevAltBtn:SetSize(22, 24)
+        prevAltBtn:SetFrameStrata("HIGH")
+        prevAltBtn:SetText("<")
+        prevAltBtn:SetScript("OnClick", function()
+            local ok, err = pcall(function()
+                if NS.MailRouter.CyclePrevTarget then
+                    NS.MailRouter:CyclePrevTarget()
+                else
+                    NS.MailRouter:CycleNextTarget()
+                end
+            end)
+            if not ok then
+                NS:Print("|cffff4444Prev Alt error:|r " .. tostring(err))
+            end
+        end)
+    end
+    prevAltBtn:ClearAllPoints()
+    prevAltBtn:SetPoint("LEFT", btn, "RIGHT", 4, 0)
+
     local nextBtn = _G.WOWEngineMailNextAltButton
     if not nextBtn then
         nextBtn = CreateFrame("Button", "WOWEngineMailNextAltButton", SendMailFrame, "UIPanelButtonTemplate")
@@ -346,7 +368,25 @@ local function EnsureMailButtons()
         end)
     end
     nextBtn:ClearAllPoints()
-    nextBtn:SetPoint("LEFT", btn, "RIGHT", 4, 0)
+    nextBtn:SetPoint("LEFT", prevAltBtn, "RIGHT", 2, 0)
+
+    local nextAltArrowBtn = _G.WOWEngineMailNextAltArrowButton
+    if not nextAltArrowBtn then
+        nextAltArrowBtn = CreateFrame("Button", "WOWEngineMailNextAltArrowButton", SendMailFrame, "UIPanelButtonTemplate")
+        nextAltArrowBtn:SetSize(22, 24)
+        nextAltArrowBtn:SetFrameStrata("HIGH")
+        nextAltArrowBtn:SetText(">")
+        nextAltArrowBtn:SetScript("OnClick", function()
+            local ok, err = pcall(function()
+                NS.MailRouter:CycleNextTarget()
+            end)
+            if not ok then
+                NS:Print("|cffff4444Next Alt error:|r " .. tostring(err))
+            end
+        end)
+    end
+    nextAltArrowBtn:ClearAllPoints()
+    nextAltArrowBtn:SetPoint("LEFT", nextBtn, "RIGHT", 2, 0)
 
     local setupBtn = _G.WOWEngineMailSetupButton
     if not setupBtn then
@@ -359,7 +399,7 @@ local function EnsureMailButtons()
         end)
     end
     setupBtn:ClearAllPoints()
-    setupBtn:SetPoint("LEFT", nextBtn, "RIGHT", 4, 0)
+    setupBtn:SetPoint("LEFT", nextAltArrowBtn, "RIGHT", 4, 0)
 end
 
 local btnHook = CreateFrame("Frame")

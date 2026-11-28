@@ -260,20 +260,24 @@ function OB:OpenCustomAdditionsPopup()
         altLbl:SetPoint("TOPLEFT", 14, -76)
         altLbl:SetText("Character:")
 
-        local altBtn = CreateActionButton(cf, 295, 22, "Select Character", function()
+        local function StepCustomAlt(delta)
             local list = NS.Roster:GetSortedVerifiedList()
             if #list == 0 then return end
-            OB.customAltIndex = OB.customAltIndex + 1
-            if OB.customAltIndex > #list then OB.customAltIndex = 1
-OB.step3CharIndex = 1
-OB.sharedFrame = nil
-OB.sharedProfName = nil
-OB.sharedCatKey = nil
-OB.sharedPoolIndex = 1 end
+            OB.customAltIndex = ((OB.customAltIndex - 1 + (delta or 1)) % #list) + 1
             OB:RefreshCustomPopup()
-        end)
-        altBtn:SetPoint("LEFT", altLbl, "RIGHT", 10, 0)
+        end
+
+        local altPrevBtn = CreateActionButton(cf, 22, 22, "<", function() StepCustomAlt(-1) end)
+        altPrevBtn:SetPoint("LEFT", altLbl, "RIGHT", 10, 0)
+        cf.altPrevBtn = altPrevBtn
+
+        local altBtn = CreateActionButton(cf, 245, 22, "Select Character", function() StepCustomAlt(1) end)
+        altBtn:SetPoint("LEFT", altPrevBtn, "RIGHT", 3, 0)
         cf.altBtn = altBtn
+
+        local altNextBtn = CreateActionButton(cf, 22, 22, ">", function() StepCustomAlt(1) end)
+        altNextBtn:SetPoint("LEFT", altBtn, "RIGHT", 3, 0)
+        cf.altNextBtn = altNextBtn
 
         local kwLbl = cf:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         kwLbl:SetPoint("TOPLEFT", 14, -108)
@@ -309,12 +313,7 @@ OB.sharedPoolIndex = 1 end
                 NS:Print("|cffff9900Scan characters in Step 1 first.|r")
                 return
             end
-            if OB.customAltIndex > #list then OB.customAltIndex = 1
-OB.step3CharIndex = 1
-OB.sharedFrame = nil
-OB.sharedProfName = nil
-OB.sharedCatKey = nil
-OB.sharedPoolIndex = 1 end
+            if OB.customAltIndex > #list or OB.customAltIndex < 1 then OB.customAltIndex = 1 end
             local target = list[OB.customAltIndex].name
             local rawKw = cf.editBox:GetText() or ""
             local cleanKw = C.ExtractItemName(rawKw)
@@ -598,15 +597,24 @@ function OB:OpenSharedPriorityPopup(profName, catKey)
         poolLbl:SetPoint("TOPLEFT", 14, -340)
         sf.poolLbl = poolLbl
 
-        local poolCycleBtn = CreateActionButton(sf, 260, 22, "Select Character to Add", function()
+        local function StepSharedPool(delta)
             local _, pool = NS.Roster:GetSharedPoolForProfession(OB.sharedProfName, OB.sharedCatKey)
             if #pool == 0 then return end
-            OB.sharedPoolIndex = OB.sharedPoolIndex + 1
-            if OB.sharedPoolIndex > #pool then OB.sharedPoolIndex = 1 end
+            OB.sharedPoolIndex = ((OB.sharedPoolIndex - 1 + (delta or 1)) % #pool) + 1
             OB:RefreshSharedPriorityPopup()
-        end)
-        poolCycleBtn:SetPoint("TOPLEFT", 14, -358)
+        end
+
+        local poolPrevBtn = CreateActionButton(sf, 22, 22, "<", function() StepSharedPool(-1) end)
+        poolPrevBtn:SetPoint("TOPLEFT", 14, -358)
+        sf.poolPrevBtn = poolPrevBtn
+
+        local poolCycleBtn = CreateActionButton(sf, 212, 22, "Select Character to Add", function() StepSharedPool(1) end)
+        poolCycleBtn:SetPoint("LEFT", poolPrevBtn, "RIGHT", 3, 0)
         sf.poolCycleBtn = poolCycleBtn
+
+        local poolNextBtn = CreateActionButton(sf, 22, 22, ">", function() StepSharedPool(1) end)
+        poolNextBtn:SetPoint("LEFT", poolCycleBtn, "RIGHT", 3, 0)
+        sf.poolNextBtn = poolNextBtn
 
         local poolAddBtn = CreateActionButton(sf, 108, 22, "+ Add to Top 10", function()
             local active, pool = NS.Roster:GetSharedPoolForProfession(OB.sharedProfName, OB.sharedCatKey)
@@ -615,7 +623,7 @@ function OB:OpenSharedPriorityPopup(profName, catKey)
                 return
             end
             if #pool == 0 then return end
-            if OB.sharedPoolIndex > #pool then OB.sharedPoolIndex = 1 end
+            if OB.sharedPoolIndex > #pool or OB.sharedPoolIndex < 1 then OB.sharedPoolIndex = 1 end
             local pick = pool[OB.sharedPoolIndex]
             if pick then
                 local ok, res = NS.Roster:AddTargetToCategory(OB.sharedCatKey, pick.name, true)
@@ -626,7 +634,7 @@ function OB:OpenSharedPriorityPopup(profName, catKey)
                 end
             end
         end)
-        poolAddBtn:SetPoint("LEFT", poolCycleBtn, "RIGHT", 6, 0)
+        poolAddBtn:SetPoint("LEFT", poolNextBtn, "RIGHT", 6, 0)
         sf.poolAddBtn = poolAddBtn
 
         -- Bottom Utility Row: Auto-Sort + Done
@@ -905,11 +913,7 @@ function OB:BuildFrame()
         local list = NS.Roster:GetSortedVerifiedList()
         if #list > 0 then
             OB.step3CharIndex = OB.step3CharIndex + 1
-            if OB.step3CharIndex > #list then OB.step3CharIndex = 1
-OB.sharedFrame = nil
-OB.sharedProfName = nil
-OB.sharedCatKey = nil
-OB.sharedPoolIndex = 1 end
+            if OB.step3CharIndex > #list then OB.step3CharIndex = 1 end
             OB:RefreshCurrentStep()
         end
     end)
@@ -1212,10 +1216,24 @@ OB.sharedPoolIndex = 1 end
     end)
     bStage:SetPoint("TOPLEFT", p5Desc, "BOTTOMLEFT", 0, -14)
 
-    local bNextAlt = CreateActionButton(p5, 222, 26, "2. Cycle Next Waiting Alt", function()
+    local bPrevAlt = CreateActionButton(p5, 24, 26, "<", function()
+        if NS.MailRouter.CyclePrevTarget then
+            NS.MailRouter:CyclePrevTarget()
+        else
+            NS.MailRouter:CycleNextTarget()
+        end
+    end)
+    bPrevAlt:SetPoint("LEFT", bStage, "RIGHT", 14, 0)
+
+    local bNextAlt = CreateActionButton(p5, 168, 26, "2. Switch Waiting Alt", function()
         NS.MailRouter:CycleNextTarget()
     end)
-    bNextAlt:SetPoint("LEFT", bStage, "RIGHT", 14, 0)
+    bNextAlt:SetPoint("LEFT", bPrevAlt, "RIGHT", 3, 0)
+
+    local bNextAltR = CreateActionButton(p5, 24, 26, ">", function()
+        NS.MailRouter:CycleNextTarget()
+    end)
+    bNextAltR:SetPoint("LEFT", bNextAlt, "RIGHT", 3, 0)
 
     local bBags = CreateActionButton(p5, 222, 26, "3. Sort Bags (/hordeship bags)", function()
         NS.BankSorter:RunSort("bags")

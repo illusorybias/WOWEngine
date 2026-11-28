@@ -564,6 +564,7 @@ function C.GetAltoholicCharacters(targetRealm, targetFaction)
                     end
 
                     local profs = {}
+                    local subProfs = {}
                     if DS.GetProfession1 then
                         local okP1, rank1, _, name1 = pcall(DS.GetProfession1, DS, charKey)
                         if okP1 and name1 and type(name1) == "string" and name1 ~= "" then
@@ -576,13 +577,41 @@ function C.GetAltoholicCharacters(targetRealm, targetFaction)
                             profs[name2] = tonumber(rank2) or 1
                         end
                     end
-                    if next(profs) == nil and DS.GetProfessions then
+                    if DS.GetFirstAid then
+                        local okFA, rankFA = pcall(DS.GetFirstAid, DS, charKey)
+                        if okFA and tonumber(rankFA) and tonumber(rankFA) > 0 then
+                            subProfs["First Aid"] = tonumber(rankFA)
+                        end
+                    end
+                    if DS.GetCooking then
+                        local okCK, rankCK = pcall(DS.GetCooking, DS, charKey)
+                        if okCK and tonumber(rankCK) and tonumber(rankCK) > 0 then
+                            subProfs["Cooking"] = tonumber(rankCK)
+                        end
+                    end
+                    if DS.GetFishing then
+                        local okFS, rankFS = pcall(DS.GetFishing, DS, charKey)
+                        if okFS and tonumber(rankFS) and tonumber(rankFS) > 0 then
+                            subProfs["Fishing"] = tonumber(rankFS)
+                        end
+                    end
+                    if DS.GetProfessions then
                         local okP, pTbl = pcall(DS.GetProfessions, DS, charKey)
                         if okP and type(pTbl) == "table" then
                             for pName, pData in pairs(pTbl) do
                                 if type(pName) == "string" and pName ~= "" then
                                     local r = (type(pData) == "table" and (pData.Rank or pData.rank)) or tonumber(pData) or 1
-                                    profs[pName] = r
+                                    local subCanon = MatchCanonicalProf(pName, KNOWN_SUB_PROFS)
+                                    if subCanon then
+                                        subProfs[subCanon] = math.max(tonumber(subProfs[subCanon]) or 0, tonumber(r) or 1)
+                                    elseif next(profs) == nil or not profs[pName] then
+                                        local primCanon = MatchCanonicalProf(pName, KNOWN_PRIMARY_PROFS)
+                                        if primCanon then
+                                            profs[primCanon] = tonumber(r) or 1
+                                        elseif next(profs) == nil then
+                                            profs[pName] = tonumber(r) or 1
+                                        end
+                                    end
                                 end
                             end
                         end
@@ -607,6 +636,7 @@ function C.GetAltoholicCharacters(targetRealm, targetFaction)
                         totalBagSlots = totBags,
                         regularBagSlots = regBags,
                         professions = profs,
+                        subProfessions = subProfs,
                     })
                 end
             end
@@ -657,6 +687,152 @@ function C.IsMastercraftReserved(itemID)
     end
 
     return false
+end
+
+local function RecipeUsesReagent(recipe, targetItemID)
+    if type(recipe) ~= "table" or not targetItemID then return false end
+    local numID = tonumber(targetItemID)
+    local lists = { recipe.reagents, recipe.materials, recipe.ingredients }
+    for _, tbl in ipairs(lists) do
+        if type(tbl) == "table" then
+            if tbl[numID] or tbl[tostring(numID)] then
+                return true
+            end
+            for k, v in pairs(tbl) do
+                if tonumber(k) == numID then return true end
+                if type(v) == "table" then
+                    if tonumber(v.itemID or v.id or v.reagentID) == numID then
+                        return true
+                    end
+                elseif tonumber(v) == numID and type(k) == "number" then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function CollectMastercraftRecipes(charName)
+    local recipes = {}
+    local MC = _G.Mastercraft or _G.MasterCraft
+    local db = _G.MastercraftDB or _G.MasterCraftDB
+    local charKey = charName and C.CanonicalCharKey(charName) or nil
+
+    local function ingestRecipeTable(tbl)
+        if type(tbl) ~= "table" then return end
+        for k, entry in pairs(tbl) do
+            if type(entry) == "table" then
+                local profit = tonumber(entry.profit or entry.expectedProfit or entry.netProfit or entry.profitCopper)
+                if profit ~= nil or entry.reagents or entry.materials or entry.difficulty or entry.color then
+                    table.insert(recipes, {
+                        name = entry.name or entry.recipeName or tostring(k),
+                        profit = profit or 0,
+                        difficulty = entry.difficulty or entry.color or entry.skillType,
+                        reagents = entry.reagents or entry.materials or entry.ingredients,
+                    })
+                end
+            end
+        end
+    end
+
+    if MC then
+        if type(MC.GetTopProfitRecipes) == "function" then
+            local ok, list = pcall(MC.GetTopProfitRecipes, MC, charName, 3)
+            if ok and type(list) == "table" then ingestRecipeTable(list) end
+        elseif type(MC.GetProfitableRecipes) == "function" then
+            local ok, list = pcall(MC.GetProfitableRecipes, MC, charName)
+            if ok and type(list) == "table" then ingestRecipeTable(list) end
+        end
+        if #recipes == 0 then
+            ingestRecipeTable(MC.recipes or MC.recipeCache or MC.profitTable)
+        end
+    end
+
+    if #recipes == 0 and type(db) == "table" then
+        if type(db.char) == "table" and charKey then
+            for ck, cdata in pairs(db.char) do
+                if type(ck) == "string" and C.CanonicalCharKey(ck) == charKey and type(cdata) == "table" then
+                    ingestRecipeTable(cdata.recipes or cdata.profitTable or cdata.crafts)
+                end
+            end
+        end
+        if #recipes == 0 then
+            ingestRecipeTable(db.recipes or db.profitTable or db.crafts)
+        end
+    end
+
+    return recipes
+end
+
+-- Returns (isTop3Profit, recipeName, profitRank) when Mastercraft ranks a recipe using itemID in Top 3 for profit
+function C.GetMastercraftTopProfitReagentInfo(itemID, charName)
+    if not itemID then return false, nil, nil end
+    local numID = tonumber(itemID)
+    local MC = _G.Mastercraft or _G.MasterCraft
+    local db = _G.MastercraftDB or _G.MasterCraftDB
+
+    if MC and type(MC.IsTopProfitReagent) == "function" then
+        local ok, res, rName, rank = pcall(MC.IsTopProfitReagent, MC, numID, charName, 3)
+        if ok and res then
+            return true, rName, tonumber(rank) or 1
+        end
+    end
+
+    if MC and type(MC.topProfitReagents) == "table" and MC.topProfitReagents[numID] then
+        local info = MC.topProfitReagents[numID]
+        if type(info) == "table" then
+            return true, info.recipeName or info.name, tonumber(info.rank) or 1
+        end
+        return true, nil, 1
+    end
+    if type(db) == "table" and type(db.topProfitReagents) == "table" and db.topProfitReagents[numID] then
+        local info = db.topProfitReagents[numID]
+        if type(info) == "table" then
+            return true, info.recipeName or info.name, tonumber(info.rank) or 1
+        end
+        return true, nil, 1
+    end
+
+    local recipes = CollectMastercraftRecipes(charName)
+    if #recipes == 0 then return false, nil, nil end
+
+    table.sort(recipes, function(a, b)
+        return (tonumber(a.profit) or 0) > (tonumber(b.profit) or 0)
+    end)
+
+    local limit = math.min(3, #recipes)
+    for rank = 1, limit do
+        local r = recipes[rank]
+        if r and (tonumber(r.profit) or 0) > 0 and RecipeUsesReagent(r, numID) then
+            return true, r.name, rank
+        end
+    end
+    return false, nil, nil
+end
+
+-- Checks Mastercraft cached recipe difficulty for itemID on charName.
+-- Returns: true (all matching recipes are grey/trivial), false (at least one gives skill-ups), or nil (no data)
+function C.IsMastercraftReagentGrey(itemID, charName)
+    if not itemID then return nil end
+    local numID = tonumber(itemID)
+    local recipes = CollectMastercraftRecipes(charName)
+    if #recipes == 0 then return nil end
+
+    local sawMatch = false
+    for _, r in ipairs(recipes) do
+        if RecipeUsesReagent(r, numID) then
+            sawMatch = true
+            local diff = string.lower(tostring(r.difficulty or ""))
+            if diff ~= "" and diff ~= "trivial" and diff ~= "grey" and diff ~= "gray" and diff ~= "0" then
+                return false
+            end
+        end
+    end
+    if sawMatch then
+        return true
+    end
+    return nil
 end
 
 

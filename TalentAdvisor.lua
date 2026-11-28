@@ -349,14 +349,16 @@ function TA:GetSelectedBuild()
     return builds[1]
 end
 
-function TA:CycleBuild()
+function TA:CycleBuild(delta)
     NS:EnsureDB()
     local builds = TA:GetPlayerClassBuilds()
+    if #builds == 0 then return end
     local cur = TA:GetSelectedBuild()
+    local step = delta or 1
     local nextIdx = 1
     for i, b in ipairs(builds) do
         if b.id == cur.id then
-            nextIdx = (i % #builds) + 1
+            nextIdx = ((i - 1 + step) % #builds) + 1
             break
         end
     end
@@ -366,6 +368,14 @@ function TA:CycleBuild()
     NS:Print("Selected Spec Pre-Load: |cffffd100" .. picked.label .. "|r (" .. picked.role .. ")")
     TA:UpdateTalentHighlight()
     if NS.StatCapsUI and NS.StatCapsUI.Refresh then NS.StatCapsUI:Refresh() end
+end
+
+function TA:PrevBuild()
+    return TA:CycleBuild(-1)
+end
+
+function TA:NextBuild()
+    return TA:CycleBuild(1)
 end
 
 -- Dynamically resolve the active Blizzard talent window across Classic & Modern clients
@@ -824,7 +834,7 @@ function TA:EnsureTalentBar()
     if not TA.bar then
         local template = BackdropTemplateMixin and "BackdropTemplate" or nil
         local bar = CreateFrame("Frame", "WOWEngineTalentBar", parent, template)
-        bar:SetSize(340, 44)
+        bar:SetSize(384, 44)
         if bar.SetBackdrop then
             pcall(function()
                 bar:SetBackdrop({
@@ -838,15 +848,29 @@ function TA:EnsureTalentBar()
             end)
         end
 
+        local specPrevBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+        specPrevBtn:SetSize(20, 20)
+        specPrevBtn:SetPoint("TOPLEFT", 6, -4)
+        specPrevBtn:SetText("<")
+        specPrevBtn:SetScript("OnClick", function() TA:CycleBuild(-1) end)
+        bar.specPrevBtn = specPrevBtn
+
         local specBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-        specBtn:SetSize(198, 20)
-        specBtn:SetPoint("TOPLEFT", 6, -4)
-        specBtn:SetScript("OnClick", function() TA:CycleBuild() end)
+        specBtn:SetSize(206, 20)
+        specBtn:SetPoint("LEFT", specPrevBtn, "RIGHT", 2, 0)
+        specBtn:SetScript("OnClick", function() TA:CycleBuild(1) end)
         bar.specBtn = specBtn
 
+        local specNextBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+        specNextBtn:SetSize(20, 20)
+        specNextBtn:SetPoint("LEFT", specBtn, "RIGHT", 2, 0)
+        specNextBtn:SetText(">")
+        specNextBtn:SetScript("OnClick", function() TA:CycleBuild(1) end)
+        bar.specNextBtn = specNextBtn
+
         local capsBtn = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
-        capsBtn:SetSize(124, 20)
-        capsBtn:SetPoint("LEFT", specBtn, "RIGHT", 6, 0)
+        capsBtn:SetSize(116, 20)
+        capsBtn:SetPoint("LEFT", specNextBtn, "RIGHT", 6, 0)
         capsBtn:SetText("Stat Caps")
         capsBtn:SetScript("OnClick", function()
             if NS.StatCapsUI and NS.StatCapsUI.Toggle then NS.StatCapsUI:Toggle() end
@@ -854,7 +878,7 @@ function TA:EnsureTalentBar()
 
         local nextTxt = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         nextTxt:SetPoint("BOTTOMLEFT", 8, 5)
-        nextTxt:SetWidth(324)
+        nextTxt:SetWidth(368)
         nextTxt:SetJustifyH("LEFT")
         bar.nextTxt = nextTxt
 

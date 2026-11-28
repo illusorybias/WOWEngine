@@ -9,6 +9,9 @@ MR.stagedCount = 0
 MR.currentRecipient = nil
 MR.pendingRRAdvances = {}
 MR.selectedAltCursor = 1
+MR.greyOverrides = {}
+MR.greyPromptFrame = nil
+MR.greyPromptQueue = {}
 
 local mailFrame = CreateFrame("Frame")
 mailFrame:RegisterEvent("MAIL_SHOW")
@@ -265,6 +268,374 @@ local function FindFirstEmptyMailSlot(maxAttach)
     return nil
 end
 
+-- ============================================================
+-- FIRST AID LINEN CLOTH PRIORITY (< 80) & GREY-RECIPE EVALUATOR
+-- ============================================================
+
+local CATEGORY_CRAFT_PROFS = {
+    Cloth      = { "Tailoring" },
+    Herb       = { "Alchemy", "Inscription" },
+    Ore        = { "Blacksmithing", "Engineering", "Jewelcrafting", "Mining" },
+    Leather    = { "Leatherworking" },
+    Enchanting = { "Enchanting" },
+}
+
+-- Classic / WoW Forever skill ranks where common crafting reagents turn grey (no skill-up value)
+local REAGENT_GREY_SKILL_BY_ID = {
+    -- Cloth (Tailoring)
+    [2589]  = 100, -- Linen Cloth
+    [2592]  = 150, -- Wool Cloth
+    [4306]  = 215, -- Silk Cloth
+    [4338]  = 275, -- Mageweave Cloth
+    -- Ore / Stone / Bars
+    [2835]  = 65,  -- Rough Stone
+    [2770]  = 100, -- Copper Ore
+    [2840]  = 100, -- Copper Bar
+    [2836]  = 125, -- Coarse Stone
+    [2771]  = 155, -- Tin Ore
+    [2841]  = 155, -- Bronze Bar
+    [2775]  = 175, -- Silver Ore
+    [2842]  = 175, -- Silver Bar
+    [2838]  = 185, -- Heavy Stone
+    [2772]  = 205, -- Iron Ore
+    [3575]  = 205, -- Iron Bar
+    [7912]  = 250, -- Solid Stone
+    [3858]  = 265, -- Mithril Ore
+    [3860]  = 265, -- Mithril Bar
+    -- Leather / Hides
+    [2934]  = 55,  -- Ruined Leather Scraps
+    [2318]  = 115, -- Light Leather
+    [783]   = 115, -- Light Hide
+    [2319]  = 175, -- Medium Leather
+    [4232]  = 175, -- Medium Hide
+    [4234]  = 230, -- Heavy Leather
+    [4235]  = 230, -- Heavy Hide
+    [4304]  = 280, -- Thick Leather
+    [8169]  = 280, -- Thick Hide
+    -- Herbs (Alchemy)
+    [2447]  = 85,  -- Peacebloom
+    [765]   = 85,  -- Silverleaf
+    [2449]  = 105, -- Earthroot
+    [785]   = 135, -- Mageroyal
+    [2450]  = 135, -- Briarthorn
+    [2453]  = 165, -- Bruiseweed
+    [3820]  = 165, -- Stranglekelp
+    [3355]  = 200, -- Wild Steelbloom
+    [3356]  = 200, -- Kingsblood
+    -- Enchanting
+    [10940] = 125, -- Strange Dust
+    [10938] = 125, -- Lesser Magic Essence
+    [11083] = 185, -- Soul Dust
+    [10998] = 185, -- Lesser Astral Essence
+    [11137] = 235, -- Vision Dust
+    [11134] = 235, -- Lesser Mystic Essence
+}
+
+local REAGENT_GREY_SKILL_BY_NAME = {
+    ["linen cloth"] = 100,
+    ["wool cloth"] = 150,
+    ["silk cloth"] = 215,
+    ["mageweave cloth"] = 275,
+    ["rough stone"] = 65,
+    ["copper ore"] = 100,
+    ["copper bar"] = 100,
+    ["coarse stone"] = 125,
+    ["tin ore"] = 155,
+    ["bronze bar"] = 155,
+    ["heavy stone"] = 185,
+    ["iron ore"] = 205,
+    ["iron bar"] = 205,
+    ["solid stone"] = 250,
+    ["mithril ore"] = 265,
+    ["mithril bar"] = 265,
+    ["ruined leather scraps"] = 55,
+    ["light leather"] = 115,
+    ["light hide"] = 115,
+    ["medium leather"] = 175,
+    ["medium hide"] = 175,
+    ["heavy leather"] = 230,
+    ["heavy hide"] = 230,
+    ["thick leather"] = 280,
+    ["thick hide"] = 280,
+    ["peacebloom"] = 85,
+    ["silverleaf"] = 85,
+    ["earthroot"] = 105,
+    ["mageroyal"] = 135,
+    ["briarthorn"] = 135,
+    ["bruiseweed"] = 165,
+    ["stranglekelp"] = 165,
+    ["strange dust"] = 125,
+    ["soul dust"] = 185,
+    ["vision dust"] = 235,
+}
+
+function MR:IsLinenClothItem(itemID, itemName)
+    if tonumber(itemID) == 2589 then return true end
+    if itemName and not C.IsSecret(itemName) then
+        return string.lower(C.Trim(itemName)) == "linen cloth"
+    end
+    return false
+end
+
+function MR:GetFirstAidSkill(charInfo)
+    if type(charInfo) ~= "table" then return nil end
+    if type(charInfo.subProfessions) == "table" then
+        for k, v in pairs(charInfo.subProfessions) do
+            if type(k) == "string" and string.find(string.lower(k), "first aid", 1, true) then
+                return tonumber(v) or 0
+            end
+        end
+    end
+    if type(charInfo.professions) == "table" then
+        for k, v in pairs(charInfo.professions) do
+            if type(k) == "string" and string.find(string.lower(k), "first aid", 1, true) then
+                return tonumber(v) or 0
+            end
+        end
+    end
+    -- Own logged-in character whose subProfessions were scanned without First Aid -> skill 0 (< 80)
+    if charInfo.source == "login" or type(charInfo.subProfessions) == "table" then
+        return 0
+    end
+    return nil
+end
+
+-- Returns priority recipients needing Linen Cloth for First Aid (skill < 80).
+-- Characters at 80+ First Aid are automatically excluded from First Aid Linen priority.
+function MR:GetFirstAidLinenPriorityTargets()
+    local roster = NS:GetActiveRoster()
+    local candidates = {}
+    local isSelfNeedsFA = false
+
+    for exactName, info in pairs(roster) do
+        if info and info.verified and not NS.Roster:IsExcludedFromMail(info) then
+            local isOwn = (info.isOwnAlt == true) or (info.source == "login") or (info.source == "altoholic")
+            if isOwn then
+                local faSkill = MR:GetFirstAidSkill(info)
+                if faSkill ~= nil and faSkill < 80 then
+                    if C.IsCurrentPlayer(exactName) then
+                        isSelfNeedsFA = true
+                    else
+                        table.insert(candidates, {
+                            name = exactName,
+                            faSkill = faSkill,
+                            level = tonumber(info.level) or 0,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Prioritize characters already training First Aid (1..79) closest to 80, then by level
+    table.sort(candidates, function(a, b)
+        local aStarted = a.faSkill > 0 and 1 or 0
+        local bStarted = b.faSkill > 0 and 1 or 0
+        if aStarted ~= bStarted then return aStarted > bStarted end
+        if a.faSkill ~= b.faSkill then return a.faSkill > b.faSkill end
+        if a.level ~= b.level then return a.level > b.level end
+        return string.lower(a.name) < string.lower(b.name)
+    end)
+
+    local eligible = {}
+    for _, c in ipairs(candidates) do
+        table.insert(eligible, c.name)
+    end
+    if isSelfNeedsFA and WOWEngineDB and WOWEngineDB.keepOwnCategoryMats then
+        return {}, true
+    end
+    return eligible, isSelfNeedsFA
+end
+
+-- Checks whether a trade-good reagent's recipes have turned grey (no skill-up value) for targetName
+function MR:IsReagentGreyForTarget(itemID, itemName, cat, targetName)
+    if not targetName or not cat then return false, nil, nil end
+    if cat == "Bags" or cat == "BankAlt" or cat == "DisenchantBoE" then return false, nil, nil end
+
+    -- 1. Check Mastercraft's live recipe difficulty cache if available
+    local mcGrey = C.IsMastercraftReagentGrey and C.IsMastercraftReagentGrey(itemID, targetName)
+    if mcGrey == false then
+        return false, nil, nil
+    end
+
+    local roster = NS:GetActiveRoster()
+    local exact = NS.Roster:FindVerifiedName(targetName) or targetName
+    local info = roster and roster[exact]
+
+    -- Special case: Linen Cloth is never grey if target still needs First Aid < 80
+    if MR:IsLinenClothItem(itemID, itemName) and info then
+        local faSkill = MR:GetFirstAidSkill(info)
+        if faSkill ~= nil and faSkill < 80 then
+            return false, "First Aid", faSkill
+        end
+    end
+
+    if mcGrey == true then
+        return true, cat, nil
+    end
+
+    -- 2. Check reagent grey skill-up ceiling against target's crafting profession rank
+    local greyAt = (itemID and REAGENT_GREY_SKILL_BY_ID[tonumber(itemID)])
+        or (itemName and REAGENT_GREY_SKILL_BY_NAME[string.lower(C.Trim(itemName))])
+    if not greyAt or not info or type(info.professions) ~= "table" then
+        return false, nil, nil
+    end
+
+    local profNames = CATEGORY_CRAFT_PROFS[cat]
+    if not profNames then return false, nil, nil end
+
+    local sawProf = false
+    local lowestRelevantSkill = nil
+    local matchedProf = nil
+    for _, pName in ipairs(profNames) do
+        local r = tonumber(info.professions[pName])
+        if r and r > 0 then
+            sawProf = true
+            if lowestRelevantSkill == nil or r < lowestRelevantSkill then
+                lowestRelevantSkill = r
+                matchedProf = pName
+            end
+        end
+    end
+
+    if sawProf and lowestRelevantSkill and lowestRelevantSkill >= greyAt then
+        return true, matchedProf, lowestRelevantSkill
+    end
+    return false, matchedProf, lowestRelevantSkill
+end
+
+local function MakeGreyOverrideKey(itemID, itemName, targetName)
+    local itemPart = itemID and tostring(itemID) or string.lower(tostring(itemName or "?"))
+    local charPart = C.CanonicalCharKey(targetName) or string.lower(tostring(targetName or "?"))
+    return itemPart .. "::" .. charPart
+end
+
+function MR:ShowNextGreyOverridePopup()
+    if not MR.greyPromptQueue or #MR.greyPromptQueue == 0 then return end
+    local entry = table.remove(MR.greyPromptQueue, 1)
+    if not entry then return end
+    MR:ShowGreyOverridePopup(entry)
+end
+
+-- Clean Blizzard blue-and-gold popup dialog for grey-recipe reagent overrides (visual routing only; never calls SendMail)
+function MR:ShowGreyOverridePopup(entry)
+    if not entry then return end
+    if not MR.greyPromptFrame then
+        local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+        local f = CreateFrame("Frame", "WOWEngineGreyOverrideFrame", UIParent, template)
+        f:SetSize(430, 195)
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
+        f:SetFrameStrata("DIALOG")
+        f:SetFrameLevel(160)
+        f:SetClampedToScreen(true)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+
+        if f.SetBackdrop then
+            pcall(function()
+                f:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                    tile = true, tileSize = 16, edgeSize = 14,
+                    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+                })
+                f:SetBackdropColor(0.04, 0.09, 0.19, 0.98)
+                f:SetBackdropBorderColor(0.95, 0.78, 0.18, 1.0)
+            end)
+        end
+
+        if UISpecialFrames then
+            table.insert(UISpecialFrames, "WOWEngineGreyOverrideFrame")
+        end
+
+        local headerBg = f:CreateTexture(nil, "ARTWORK")
+        headerBg:SetPoint("TOPLEFT", 4, -4)
+        headerBg:SetPoint("TOPRIGHT", -4, -4)
+        headerBg:SetHeight(34)
+        headerBg:SetColorTexture(0.06, 0.16, 0.34, 0.95)
+
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 14, -11)
+        title:SetText("|cff00aeffWOWEngine|r |cffffd100Grey-Recipe Reagent Override|r")
+
+        local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -4, -4)
+        closeBtn:SetScript("OnClick", function()
+            f:Hide()
+            MR:ShowNextGreyOverridePopup()
+        end)
+
+        local itemTxt = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        itemTxt:SetPoint("TOPLEFT", 16, -48)
+        itemTxt:SetWidth(398)
+        itemTxt:SetJustifyH("LEFT")
+        f.itemTxt = itemTxt
+
+        local bodyTxt = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        bodyTxt:SetPoint("TOPLEFT", itemTxt, "BOTTOMLEFT", 0, -8)
+        bodyTxt:SetWidth(398)
+        bodyTxt:SetJustifyH("LEFT")
+        f.bodyTxt = bodyTxt
+
+        local overrideBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        overrideBtn:SetSize(148, 24)
+        overrideBtn:SetPoint("BOTTOMLEFT", 16, 14)
+        overrideBtn:SetText("Override & Send")
+        overrideBtn:SetScript("OnClick", function()
+            local cur = f.currentEntry
+            f:Hide()
+            if cur and cur.overrideKey then
+                MR.greyOverrides[cur.overrideKey] = "send"
+                NS:Print(string.format("Override approved: marked |cffffd100%s|r to stage for |cff00ff00%s|r (click Send manually).",
+                    tostring(cur.itemName or "item"), tostring(cur.target or "alt")))
+                if #MR.greyPromptQueue > 0 then
+                    MR:ShowNextGreyOverridePopup()
+                elseif MR.isMailboxOpen or (MailFrame and MailFrame:IsShown()) then
+                    pcall(function() MR:StageNextBatch(cur.forcedTarget) end)
+                end
+            end
+        end)
+        f.overrideBtn = overrideBtn
+
+        local skipBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        skipBtn:SetSize(104, 24)
+        skipBtn:SetPoint("BOTTOMRIGHT", -16, 14)
+        skipBtn:SetText("Skip")
+        skipBtn:SetScript("OnClick", function()
+            local cur = f.currentEntry
+            f:Hide()
+            if cur and cur.overrideKey then
+                MR.greyOverrides[cur.overrideKey] = "skip"
+                NS:Print(string.format("Skipped grey-recipe reagent |cffffd100%s|r for |cffaaaaaa%s|r.",
+                    tostring(cur.itemName or "item"), tostring(cur.target or "alt")))
+            end
+            MR:ShowNextGreyOverridePopup()
+        end)
+        f.skipBtn = skipBtn
+
+        MR.greyPromptFrame = f
+    end
+
+    local f = MR.greyPromptFrame
+    f.currentEntry = entry
+    local profMeta = entry.profName and (entry.skillRank and (entry.profName .. " " .. tostring(entry.skillRank)) or entry.profName) or "Crafting"
+    f.itemTxt:SetText(string.format("|cffffd100%s|r  ->  |cff00ff00%s|r (%s)",
+        tostring(entry.itemName or "Reagent"), tostring(entry.target or "Alt"), profMeta))
+
+    if entry.isTop3 then
+        local craftNote = entry.recipeName and ("\n|cff00aeffTop #" .. tostring(entry.profitRank or 1) .. " Craft:|r " .. tostring(entry.recipeName)) or ""
+        f.bodyTxt:SetText("Recipe is grey for skill-ups, but Mastercraft ranks this in the Top 3 for profit. Override and mark to send anyway?" .. craftNote)
+    else
+        f.bodyTxt:SetText("Recipe is grey for skill-ups for this character and is not in Mastercraft's Top 3 for profit. Override and mark to send anyway?")
+    end
+
+    f:Show()
+    f:Raise()
+end
+
 function MR:BuildShipmentPlan(forcedTarget)
     local maxBags = C.GetMaxBagIndex()
     local mode = (WOWEngineDB and WOWEngineDB.multiAltMode) or "roundrobin"
@@ -279,10 +650,57 @@ function MR:BuildShipmentPlan(forcedTarget)
         totalScanned = 0,
         skippedBound = 0,
         skippedMC = 0,
+        skippedGrey = 0,
         keptForSelf = 0,
         customMatched = 0,
         missingCats = {},
+        greyPrompts = {},
     }
+    local queuedPromptKeys = {}
+
+    local function queueGreyPrompt(overrideKey, itemID, cleanName, targetName, profName, skillRank, isTop3, recipeName, profitRank, forced)
+        if not queuedPromptKeys[overrideKey] then
+            queuedPromptKeys[overrideKey] = true
+            table.insert(stats.greyPrompts, {
+                overrideKey = overrideKey,
+                itemID = itemID,
+                itemName = cleanName,
+                target = targetName,
+                profName = profName,
+                skillRank = skillRank,
+                isTop3 = isTop3 and true or false,
+                recipeName = recipeName,
+                profitRank = profitRank,
+                forcedTarget = forced,
+            })
+        end
+    end
+
+    local function filterGreyTargets(candidates, itemID, cleanName, cat, forced)
+        local allowed = {}
+        local hadGreySkip = false
+        for _, targetName in ipairs(candidates) do
+            local isGrey, profName, skillRank = MR:IsReagentGreyForTarget(itemID, cleanName, cat, targetName)
+            if not isGrey then
+                table.insert(allowed, targetName)
+            else
+                local oKey = MakeGreyOverrideKey(itemID, cleanName, targetName)
+                local decision = MR.greyOverrides[oKey]
+                if decision == "send" then
+                    table.insert(allowed, targetName)
+                elseif decision == "skip" then
+                    hadGreySkip = true
+                else
+                    hadGreySkip = true
+                    local isTop3, recipeName, profitRank = C.GetMastercraftTopProfitReagentInfo(itemID, targetName)
+                    if isTop3 or forced then
+                        queueGreyPrompt(oKey, itemID, cleanName, targetName, profName, skillRank, isTop3, recipeName, profitRank, forced)
+                    end
+                end
+            end
+        end
+        return allowed, hadGreySkip
+    end
 
     for bag = 0, maxBags do
         local numSlots = C.GetContainerNumSlots(bag)
@@ -308,8 +726,13 @@ function MR:BuildShipmentPlan(forcedTarget)
                         if addonHeld then
                             stats.skippedMC = stats.skippedMC + 1
                         else
-                            dest = forcedTarget
-                            routeLabel = cat or "Direct"
+                            local allowedForced, hadGrey = filterGreyTargets({ forcedTarget }, itemID, cleanName, cat, forcedTarget)
+                            if #allowedForced > 0 then
+                                dest = allowedForced[1]
+                                routeLabel = cat or "Direct"
+                            elseif hadGrey then
+                                stats.skippedGrey = stats.skippedGrey + 1
+                            end
                         end
                     else
                         -- Priority 1: User's explicit Custom Additions (runs BEFORE Mastercraft/Auctionator holds!)
@@ -362,26 +785,82 @@ function MR:BuildShipmentPlan(forcedTarget)
                                     end
                                 end
                             else
-                            -- Priority 2: Standard Category Routing (respects Mastercraft & Auctionator holds)
+                            -- Priority 2: Standard Category Routing (with First Aid < 80 Linen priority & Grey-Recipe Mastercraft profit check)
                             local addonHeld = MR:IsAddonHoldProtected(itemID)
                             if addonHeld then
                                 stats.skippedMC = stats.skippedMC + 1
                             elseif cat then
                                 local eligible, isSelfAssigned = NS.Roster:GetEligibleTargetsForCategory(cat)
+                                local usedFirstAidPriority = false
+
+                                -- First Aid Linen Cloth Evaluator Priority:
+                                -- Automatically include any own character with First Aid < 80 ahead of standard Cloth recipients;
+                                -- once a character hits 80+ First Aid they drop off this priority list automatically.
+                                if MR:IsLinenClothItem(itemID, cleanName) then
+                                    local faEligible, faSelf = MR:GetFirstAidLinenPriorityTargets()
+                                    if faSelf and #faEligible == 0 and WOWEngineDB and WOWEngineDB.keepOwnCategoryMats then
+                                        eligible = {}
+                                        isSelfAssigned = true
+                                    elseif #faEligible > 0 then
+                                        local merged = {}
+                                        local seenMerge = {}
+                                        for _, faTarget in ipairs(faEligible) do
+                                            local mk = C.CanonicalCharKey(faTarget)
+                                            if mk and not seenMerge[mk] then
+                                                seenMerge[mk] = true
+                                                table.insert(merged, faTarget)
+                                            end
+                                        end
+                                        for _, stdTarget in ipairs(eligible) do
+                                            local mk = C.CanonicalCharKey(stdTarget)
+                                            if mk and not seenMerge[mk] then
+                                                seenMerge[mk] = true
+                                                table.insert(merged, stdTarget)
+                                            end
+                                        end
+                                        eligible = merged
+                                        usedFirstAidPriority = true
+                                    end
+                                end
+
+                                -- Filter out characters whose recipes for this reagent have turned grey
+                                -- (unless approved via Mastercraft Top-3 profit override)
+                                local hadGreySkip = false
+                                if #eligible > 0 then
+                                    eligible, hadGreySkip = filterGreyTargets(eligible, itemID, cleanName, cat, nil)
+                                end
+
                                 if #eligible == 0 then
-                                    if isSelfAssigned then
+                                    if hadGreySkip then
+                                        stats.skippedGrey = stats.skippedGrey + 1
+                                    elseif isSelfAssigned then
                                         stats.keptForSelf = stats.keptForSelf + 1
                                     else
                                         stats.missingCats[cat] = true
                                     end
                                 elseif #eligible == 1 or mode == "priority" then
                                     dest = eligible[1]
+                                    if usedFirstAidPriority then
+                                        local rInfo = NS:GetActiveRoster()[dest]
+                                        local faSk = rInfo and MR:GetFirstAidSkill(rInfo)
+                                        if faSk ~= nil and faSk < 80 then
+                                            routeLabel = "FirstAid"
+                                        end
+                                    end
                                 else
-                                    local baseIdx = tonumber(rrCursors[cat]) or 1
-                                    local off = localOffset[cat] or 0
+                                    local rrKey = usedFirstAidPriority and "FirstAid" or cat
+                                    local baseIdx = tonumber(rrCursors[rrKey]) or 1
+                                    local off = localOffset[rrKey] or 0
                                     local pickIdx = ((baseIdx - 1 + off) % #eligible) + 1
                                     dest = eligible[pickIdx]
-                                    localOffset[cat] = off + 1
+                                    localOffset[rrKey] = off + 1
+                                    if usedFirstAidPriority then
+                                        local rInfo = NS:GetActiveRoster()[dest]
+                                        local faSk = rInfo and MR:GetFirstAidSkill(rInfo)
+                                        if faSk ~= nil and faSk < 80 then
+                                            routeLabel = "FirstAid"
+                                        end
+                                    end
                                 end
                             end
                             end
@@ -576,9 +1055,17 @@ function MR:StageBoEsOnly()
     return staged
 end
 
-function MR:CycleNextTarget()
-    MR.selectedAltCursor = (MR.selectedAltCursor or 1) + 1
+function MR:CycleTarget(delta)
+    MR.selectedAltCursor = (MR.selectedAltCursor or 1) + (delta or 1)
     return MR:StageNextBatch(nil)
+end
+
+function MR:CyclePrevTarget()
+    return MR:CycleTarget(-1)
+end
+
+function MR:CycleNextTarget()
+    return MR:CycleTarget(1)
 end
 
 function MR:StageNextBatch(explicitRecipient)
@@ -645,6 +1132,17 @@ function MR:StageNextBatch(explicitRecipient)
 
     local byRecipient, recipientOrder, stats = MR:BuildShipmentPlan(forcedTarget)
 
+    -- Queue any pending grey-recipe Mastercraft Top-3 profit override popups (visual prompt only; no automated SendMail)
+    if stats.greyPrompts and #stats.greyPrompts > 0 then
+        MR.greyPromptQueue = {}
+        for _, gp in ipairs(stats.greyPrompts) do
+            table.insert(MR.greyPromptQueue, gp)
+        end
+        if not (MR.greyPromptFrame and MR.greyPromptFrame:IsShown()) then
+            MR:ShowNextGreyOverridePopup()
+        end
+    end
+
     if #recipientOrder == 0 then
         MR.currentRecipient = nil
         MR.stagedCount = 0
@@ -654,7 +1152,11 @@ function MR:StageNextBatch(explicitRecipient)
         for k in pairs(stats.missingCats) do table.insert(missingList, k) end
         table.sort(missingList)
 
-        if #missingList > 0 then
+        if stats.greyPrompts and #stats.greyPrompts > 0 then
+            NS:Print("|cffffd100Grey-recipe reagent override dialog opened.|r Choose |cff00ff00Override & Send|r or |cffaaaaaaSkip|r.")
+        elseif stats.skippedGrey and stats.skippedGrey > 0 then
+            NS:Print(string.format("Skipped |cffffd100%d|r grey-recipe reagent(s) with no skill-up value.", stats.skippedGrey))
+        elseif #missingList > 0 then
             NS:Print("|cffff9900No recipient alt assigned for:|r " .. table.concat(missingList, ", ") .. ". Open |cffffd100/he setup|r -> Step 3 to assign alts.")
         elseif stats.keptForSelf > 0 then
             NS:Print(string.format("Nothing to mail out: kept |cff00aeff%d|r item(s) belonging to |cffffd100%s|r (a character cannot mail to themselves).", stats.keptForSelf, playerName))
@@ -669,6 +1171,8 @@ function MR:StageNextBatch(explicitRecipient)
 
     if MR.selectedAltCursor > #recipientOrder then
         MR.selectedAltCursor = 1
+    elseif MR.selectedAltCursor < 1 then
+        MR.selectedAltCursor = #recipientOrder
     end
     local pickedKey = recipientOrder[MR.selectedAltCursor]
     local bucket = byRecipient[pickedKey]
